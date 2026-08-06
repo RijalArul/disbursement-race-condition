@@ -27,6 +27,16 @@ const Unauthenticated = "authentication required"
 // NotFound covers both a missing id and a soft-deleted row.
 const NotFound = "disbursement not found"
 
+// Validation messages for PATCH /disbursements/:id/status.
+const (
+	InvalidStatusTransition = "status must be APPROVED or REJECTED"
+	AlreadyDecided          = "disbursement already %s, status cannot be changed again"
+)
+
+// NotPending is returned when a non-PENDING disbursement is targeted by an
+// operation that requires PENDING (delete, status change).
+const NotPending = "only a PENDING disbursement can be %s"
+
 // List pagination defaults and limits for GET /disbursements.
 const (
 	DefaultPage  = 1

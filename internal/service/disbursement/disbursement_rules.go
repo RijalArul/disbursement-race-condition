@@ -73,6 +73,16 @@ func validateCreate(in disbconst.CreateInput) (disbconst.CreateInput, error) {
 	return in, nil
 }
 
+// validateUpdateStatus checks status is APPROVED or REJECTED; the PENDING check happens inside the locked transaction.
+func validateUpdateStatus(status string) error {
+	switch domain.DisbursementStatus(status) {
+	case domain.StatusApproved, domain.StatusRejected:
+		return nil
+	default:
+		return domain.Invalid(disbconst.InvalidStatusTransition)
+	}
+}
+
 func parsePage(raw string) (int, error) {
 	if raw == "" {
 		return disbconst.DefaultPage, nil

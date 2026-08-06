@@ -24,6 +24,19 @@ type CreateInput struct {
 	Note          *string
 }
 
+// UpdateStatusRequest has no approved_by field — that comes from JWT context, never the body.
+type UpdateStatusRequest struct {
+	Status string  `json:"status"`
+	Note   *string `json:"note"`
+}
+
+// UpdateStatusInput is the service's own contract for PATCH /disbursements/:id/status.
+type UpdateStatusInput struct {
+	ID     string
+	Status string
+	Note   *string
+}
+
 // ListRequest is the raw, unvalidated GET /disbursements query params as
 // bound from the URL — every field stays a string, since page/limit/dates
 // need service-layer validation before they become typed values.

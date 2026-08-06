@@ -308,6 +308,43 @@ func TestValidateListStatusWhitelist(t *testing.T) {
 	}
 }
 
+func TestValidateUpdateStatus(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  string
+		wantErr bool
+	}{
+		{"APPROVED is accepted", "APPROVED", false},
+		{"REJECTED is accepted", "REJECTED", false},
+		{"PENDING is rejected", "PENDING", true},
+		{"FAILED is rejected", "FAILED", true},
+		{"lowercase is rejected", "approved", true},
+		{"empty is rejected", "", true},
+		{"unknown value is rejected", "CANCELLED", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateUpdateStatus(tt.status)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected an error, got nil")
+				}
+				if !errors.Is(err, domain.ErrInvalidInput) {
+					t.Errorf("expected ErrInvalidInput, got %v", err)
+				}
+				if msg := domain.ClientMessage(err); msg != disbconst.InvalidStatusTransition {
+					t.Errorf("client message = %q, want %q", msg, disbconst.InvalidStatusTransition)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateListSearchIsTrimmed(t *testing.T) {
 	got, err := validateList(disbconst.ListRequest{Search: "  Budi  "})
 	if err != nil {

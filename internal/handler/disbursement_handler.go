@@ -56,6 +56,37 @@ func (h *DisbursementHandler) GetByID(c *gin.Context) {
 	response.OK(c, http.StatusOK, toDisbursementResponse(d))
 }
 
+// UpdateStatus handles PATCH /disbursements/:id/status: bind, call service once, map.
+func (h *DisbursementHandler) UpdateStatus(c *gin.Context) {
+	var req disbconst.UpdateStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.MapError(c, domain.Invalid(disbconst.InvalidBody))
+		return
+	}
+
+	d, err := h.disbursements.UpdateStatus(c.Request.Context(), disbconst.UpdateStatusInput{
+		ID:     c.Param("id"),
+		Status: req.Status,
+		Note:   req.Note,
+	})
+	if err != nil {
+		response.MapError(c, err)
+		return
+	}
+
+	response.OK(c, http.StatusOK, toDisbursementResponse(d))
+}
+
+// Delete handles DELETE /disbursements/:id: bind, call service once, map.
+func (h *DisbursementHandler) Delete(c *gin.Context) {
+	if err := h.disbursements.Delete(c.Request.Context(), c.Param("id")); err != nil {
+		response.MapError(c, err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
 // List handles GET /disbursements: bind query params, call service once, map. No filtering/sorting logic lives here.
 func (h *DisbursementHandler) List(c *gin.Context) {
 	req := disbconst.ListRequest{

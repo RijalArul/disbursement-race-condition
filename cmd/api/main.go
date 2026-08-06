@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/RijalArul/disbursement-race-condition/internal/config"
+	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	"github.com/RijalArul/disbursement-race-condition/internal/handler"
 	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
 	"github.com/RijalArul/disbursement-race-condition/internal/middleware/idempotency"
@@ -137,9 +138,8 @@ func newRouter(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	disbursements.POST("", idempotency.Middleware(idempotencyRepo), disbursementHandler.Create)
 	disbursements.GET("", disbursementHandler.List)
 	disbursements.GET("/:id", disbursementHandler.GetByID)
-
-	// Remaining protected routes get middleware.RequireRole(...) per-route as
-	// they are wired up.
+	disbursements.PATCH("/:id/status", middleware.RequireRole(domain.RoleAdmin, domain.RoleSuperAdmin), disbursementHandler.UpdateStatus)
+	disbursements.DELETE("/:id", middleware.RequireRole(domain.RoleSuperAdmin), disbursementHandler.Delete)
 
 	return r
 }

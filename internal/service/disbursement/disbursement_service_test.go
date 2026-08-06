@@ -26,6 +26,13 @@ type fakeDisbursementRepo struct {
 	listTotal int64
 	listErr   error
 	listQuery disbconst.ListQuery
+
+	updateStatusResult *models.Disbursement
+	updateStatusErr    error
+	updateStatusCalls  int
+
+	softDeleteErr   error
+	softDeleteCalls int
 }
 
 func (f *fakeDisbursementRepo) Create(ctx context.Context, d *models.Disbursement) error {
@@ -53,6 +60,19 @@ func (f *fakeDisbursementRepo) List(ctx context.Context, q disbconst.ListQuery) 
 		return nil, 0, f.listErr
 	}
 	return f.listRows, f.listTotal, nil
+}
+
+func (f *fakeDisbursementRepo) UpdateStatus(ctx context.Context, id string, status domain.DisbursementStatus, approvedBy string, note *string) (*models.Disbursement, error) {
+	f.updateStatusCalls++
+	if f.updateStatusErr != nil {
+		return nil, f.updateStatusErr
+	}
+	return f.updateStatusResult, nil
+}
+
+func (f *fakeDisbursementRepo) SoftDelete(ctx context.Context, id string) error {
+	f.softDeleteCalls++
+	return f.softDeleteErr
 }
 
 const testUserID = "11111111-1111-1111-1111-111111111111"
@@ -268,6 +288,126 @@ func TestDisbursementServiceGetByIDNotFound(t *testing.T) {
 	}
 	if msg := domain.ClientMessage(err); msg != disbconst.NotFound {
 		t.Errorf("client message = %q, want %q", msg, disbconst.NotFound)
+	}
+}
+
+func TestDisbursementServiceUpdateStatusSuccess(t *testing.T) {
+	want := &models.Disbursement{ID: "DSB-000001", Status: domain.StatusApproved}
+	repo := &fakeDisbursementRepo{updateStatusResult: want}
+	svc := NewService(repo)
+
+	got, err := svc.UpdateStatus(authedCtx(), disbconst.UpdateStatusInput{ID: "DSB-000001", Status: "APPROVED"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got != want {
+		t.Errorf("UpdateStatus returned a different disbursement than the repository provided")
+	}
+	if repo.updateStatusCalls != 1 {
+		t.Errorf("repository called %d times, want 1", repo.updateStatusCalls)
+	}
+}
+
+func TestDisbursementServiceUpdateStatusInvalidValue(t *testing.T) {
+	repo := &fakeDisbursementRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.UpdateStatus(authedCtx(), disbconst.UpdateStatusInput{ID: "DSB-000001", Status: "PENDING"})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput, got %v", err)
+	}
+	if repo.updateStatusCalls != 0 {
+		t.Errorf("repository called %d times, want 0 on validation failure", repo.updateStatusCalls)
+	}
+}
+
+func TestDisbursementServiceUpdateStatusAlreadyDecided(t *testing.T) {
+	repo := &fakeDisbursementRepo{updateStatusErr: domain.ErrConflict}
+	svc := NewService(repo)
+
+	_, err := svc.UpdateStatus(authedCtx(), disbconst.UpdateStatusInput{ID: "DSB-000001", Status: "APPROVED"})
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Errorf("expected ErrConflict, got %v", err)
+	}
+	if msg := domain.ClientMessage(err); msg == "" {
+		t.Error("expected a client-safe conflict message")
+	}
+}
+
+func TestDisbursementServiceUpdateStatusNotFound(t *testing.T) {
+	repo := &fakeDisbursementRepo{updateStatusErr: domain.ErrNotFound}
+	svc := NewService(repo)
+
+	_, err := svc.UpdateStatus(authedCtx(), disbconst.UpdateStatusInput{ID: "DSB-999999", Status: "REJECTED"})
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+	if msg := domain.ClientMessage(err); msg != disbconst.NotFound {
+		t.Errorf("client message = %q, want %q", msg, disbconst.NotFound)
+	}
+}
+
+func TestDisbursementServiceUpdateStatusApprovedByFromIdentity(t *testing.T) {
+	want := &models.Disbursement{ID: "DSB-000001", Status: domain.StatusApproved}
+	repo := &fakeDisbursementRepo{updateStatusResult: want}
+	svc := NewService(repo)
+
+	const approver = "33333333-3333-3333-3333-333333333333"
+	ctx := middleware.WithIdentity(context.Background(), approver, "admin01", string(domain.RoleAdmin))
+
+	_, err := svc.UpdateStatus(ctx, disbconst.UpdateStatusInput{ID: "DSB-000001", Status: "APPROVED"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestDisbursementServiceDeleteSuccess(t *testing.T) {
+	repo := &fakeDisbursementRepo{}
+	svc := NewService(repo)
+
+	if err := svc.Delete(context.Background(), "DSB-000001"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repo.softDeleteCalls != 1 {
+		t.Errorf("repository called %d times, want 1", repo.softDeleteCalls)
+	}
+}
+
+func TestDisbursementServiceDeleteNotPending(t *testing.T) {
+	repo := &fakeDisbursementRepo{softDeleteErr: domain.ErrConflict}
+	svc := NewService(repo)
+
+	err := svc.Delete(context.Background(), "DSB-000001")
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Errorf("expected ErrConflict, got %v", err)
+	}
+}
+
+func TestDisbursementServiceDeleteNotFound(t *testing.T) {
+	repo := &fakeDisbursementRepo{softDeleteErr: domain.ErrNotFound}
+	svc := NewService(repo)
+
+	err := svc.Delete(context.Background(), "DSB-999999")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+	if msg := domain.ClientMessage(err); msg != disbconst.NotFound {
+		t.Errorf("client message = %q, want %q", msg, disbconst.NotFound)
+	}
+}
+
+func TestDisbursementServiceDeleteTwiceIsNotFoundSecondTime(t *testing.T) {
+	repo := &fakeDisbursementRepo{}
+	svc := NewService(repo)
+
+	if err := svc.Delete(context.Background(), "DSB-000001"); err != nil {
+		t.Fatalf("expected no error on first delete, got %v", err)
+	}
+
+	repo.softDeleteErr = domain.ErrNotFound
+	err := svc.Delete(context.Background(), "DSB-000001")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound on second delete, got %v", err)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	disbconst "github.com/RijalArul/disbursement-race-condition/internal/constants/disbursement"
 	respconst "github.com/RijalArul/disbursement-race-condition/internal/constants/response"
@@ -91,4 +92,64 @@ func (s *Service) GetByID(ctx context.Context, id string) (*models.Disbursement,
 		return nil, fmt.Errorf("get disbursement %s: %w", id, err)
 	}
 	return d, nil
+}
+
+// mapRepoError maps ErrNotFound/ErrConflict to client-safe errors; ok is false for anything else.
+func mapRepoError(err error, notFoundMsg, conflictMsg string) (mapped error, ok bool) {
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		return domain.NotFound(notFoundMsg), true
+	case errors.Is(err, domain.ErrConflict):
+		return domain.Conflict(conflictMsg), true
+	default:
+		return nil, false
+	}
+}
+
+// UpdateStatus approves or rejects a PENDING disbursement, racing on the row's FOR UPDATE lock so only one caller wins.
+func (s *Service) UpdateStatus(ctx context.Context, in disbconst.UpdateStatusInput) (*models.Disbursement, error) {
+	log := logger.FromCtx(ctx)
+
+	if err := validateUpdateStatus(in.Status); err != nil {
+		return nil, err
+	}
+
+	identity, _ := middleware.IdentityFromCtx(ctx)
+
+	d, err := s.disbursements.UpdateStatus(ctx, in.ID, domain.DisbursementStatus(in.Status), identity.UserID, in.Note)
+	if err != nil {
+		conflictMsg := fmt.Sprintf(disbconst.AlreadyDecided, strings.ToLower(in.Status))
+		if mapped, ok := mapRepoError(err, disbconst.NotFound, conflictMsg); ok {
+			return nil, mapped
+		}
+		return nil, fmt.Errorf("update disbursement %s status: %w", in.ID, err)
+	}
+
+	log.Info("disbursement status updated",
+		slog.String("disbursement_id", d.ID),
+		slog.String("status", string(d.Status)),
+		slog.String("approved_by", identity.UserID),
+	)
+
+	// Audit event (action=approved/rejected) lands with AUDIT-01, not here.
+
+	return d, nil
+}
+
+// Delete soft-deletes a PENDING disbursement, locked FOR UPDATE against a concurrent approve on the same row.
+func (s *Service) Delete(ctx context.Context, id string) error {
+	log := logger.FromCtx(ctx)
+
+	if err := s.disbursements.SoftDelete(ctx, id); err != nil {
+		if mapped, ok := mapRepoError(err, disbconst.NotFound, fmt.Sprintf(disbconst.NotPending, "deleted")); ok {
+			return mapped
+		}
+		return fmt.Errorf("delete disbursement %s: %w", id, err)
+	}
+
+	log.Info("disbursement deleted", slog.String("disbursement_id", id))
+
+	// Audit event (action=deleted) lands with AUDIT-01, not here.
+
+	return nil
 }
