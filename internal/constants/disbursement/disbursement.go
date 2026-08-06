@@ -37,13 +37,6 @@ const (
 // operation that requires PENDING (delete, status change).
 const NotPending = "only a PENDING disbursement can be %s"
 
-// List pagination defaults and limits for GET /disbursements.
-const (
-	DefaultPage  = 1
-	DefaultLimit = 20
-	MaxLimit     = 100
-)
-
 // Validation messages for GET /disbursements query params.
 const (
 	InvalidPage      = "page must be a positive integer"

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	disbconst "github.com/RijalArul/disbursement-race-condition/internal/constants/disbursement"
+	respconst "github.com/RijalArul/disbursement-race-condition/internal/constants/response"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 )
 
@@ -160,11 +161,11 @@ func TestValidateListDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if got.Page != disbconst.DefaultPage {
-		t.Errorf("Page = %d, want %d", got.Page, disbconst.DefaultPage)
+	if got.Page != respconst.DefaultPage {
+		t.Errorf("Page = %d, want %d", got.Page, respconst.DefaultPage)
 	}
-	if got.Limit != disbconst.DefaultLimit {
-		t.Errorf("Limit = %d, want %d", got.Limit, disbconst.DefaultLimit)
+	if got.Limit != respconst.DefaultLimit {
+		t.Errorf("Limit = %d, want %d", got.Limit, respconst.DefaultLimit)
 	}
 	if got.SortBy != "created_at" {
 		t.Errorf("SortBy = %q, want created_at", got.SortBy)
@@ -182,8 +183,8 @@ func TestValidateListLimitBoundaries(t *testing.T) {
 		wantLimit int
 	}{
 		{"exactly at max is accepted as-is", "100", false, 100},
-		{"one above max is clamped", "101", false, disbconst.MaxLimit},
-		{"far above max is clamped", "9999", false, disbconst.MaxLimit},
+		{"one above max is clamped", "101", false, respconst.MaxLimit},
+		{"far above max is clamped", "9999", false, respconst.MaxLimit},
 		{"zero is rejected", "0", true, 0},
 		{"negative is rejected", "-5", true, 0},
 		{"non-numeric is rejected", "abc", true, 0},

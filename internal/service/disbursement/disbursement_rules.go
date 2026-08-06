@@ -1,20 +1,14 @@
 package disbursement
 
 import (
-	"strconv"
 	"strings"
 	"time"
 
 	disbconst "github.com/RijalArul/disbursement-race-condition/internal/constants/disbursement"
 	respconst "github.com/RijalArul/disbursement-race-condition/internal/constants/response"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
+	"github.com/RijalArul/disbursement-race-condition/internal/pkg/pagination"
 )
-
-// buildPageMeta computes total_pages, rounding up so a partial last page still counts.
-func buildPageMeta(page, limit int, total int64) respconst.PageMeta {
-	totalPages := int((total + int64(limit) - 1) / int64(limit))
-	return respconst.PageMeta{Page: page, Limit: limit, Total: total, TotalPages: totalPages}
-}
 
 const dateLayout = "2006-01-02"
 
@@ -83,31 +77,6 @@ func validateUpdateStatus(status string) error {
 	}
 }
 
-func parsePage(raw string) (int, error) {
-	if raw == "" {
-		return disbconst.DefaultPage, nil
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 1 {
-		return 0, domain.Invalid(disbconst.InvalidPage)
-	}
-	return n, nil
-}
-
-func parseLimit(raw string) (int, error) {
-	if raw == "" {
-		return disbconst.DefaultLimit, nil
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 1 {
-		return 0, domain.Invalid(disbconst.InvalidLimit)
-	}
-	if n > disbconst.MaxLimit {
-		n = disbconst.MaxLimit
-	}
-	return n, nil
-}
-
 func parseStatus(raw string) (string, error) {
 	if raw == "" {
 		return "", nil
@@ -154,11 +123,11 @@ func parseSortOrder(raw string) (string, error) {
 // validateList parses and validates every GET /disbursements query param,
 // returning a typed ListQuery ready for the repository.
 func validateList(in disbconst.ListRequest) (disbconst.ListQuery, error) {
-	page, err := parsePage(in.Page)
+	page, err := pagination.ParsePage(in.Page, disbconst.InvalidPage)
 	if err != nil {
 		return disbconst.ListQuery{}, err
 	}
-	limit, err := parseLimit(in.Limit)
+	limit, err := pagination.ParseLimit(in.Limit, disbconst.InvalidLimit)
 	if err != nil {
 		return disbconst.ListQuery{}, err
 	}

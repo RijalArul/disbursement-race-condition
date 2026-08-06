@@ -1,5 +1,12 @@
 package response
 
+// Pagination defaults and limits shared by every paginated list endpoint.
+const (
+	DefaultPage  = 1
+	DefaultLimit = 20
+	MaxLimit     = 100
+)
+
 // PageQuery is the parsed, validated page/limit/sort a list endpoint reads
 // from query params. Reused across modules with pagination.
 type PageQuery struct {
