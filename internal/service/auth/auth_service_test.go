@@ -1,29 +1,30 @@
-package service
+package auth
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	"github.com/RijalArul/disbursement-race-condition/internal/constants"
+	authconst "github.com/RijalArul/disbursement-race-condition/internal/constants/auth"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
+	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/hash"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/jwt"
 )
 
 type fakeUserRepo struct {
-	byUsername map[string]*domain.User
-	byID       map[string]*domain.User
+	byUsername map[string]*models.User
+	byID       map[string]*models.User
 }
 
-func (f *fakeUserRepo) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
+func (f *fakeUserRepo) FindByUsername(ctx context.Context, username string) (*models.User, error) {
 	if u, ok := f.byUsername[username]; ok {
 		return u, nil
 	}
 	return nil, domain.ErrNotFound
 }
 
-func (f *fakeUserRepo) FindByID(ctx context.Context, id string) (*domain.User, error) {
+func (f *fakeUserRepo) FindByID(ctx context.Context, id string) (*models.User, error) {
 	if u, ok := f.byID[id]; ok {
 		return u, nil
 	}
@@ -31,22 +32,22 @@ func (f *fakeUserRepo) FindByID(ctx context.Context, id string) (*domain.User, e
 }
 
 type fakeRefreshTokenRepo struct {
-	byHash map[string]*domain.RefreshToken
-	byID   map[string]*domain.RefreshToken
+	byHash map[string]*models.RefreshToken
+	byID   map[string]*models.RefreshToken
 }
 
 func newFakeRefreshTokenRepo() *fakeRefreshTokenRepo {
-	return &fakeRefreshTokenRepo{byHash: map[string]*domain.RefreshToken{}, byID: map[string]*domain.RefreshToken{}}
+	return &fakeRefreshTokenRepo{byHash: map[string]*models.RefreshToken{}, byID: map[string]*models.RefreshToken{}}
 }
 
-func (f *fakeRefreshTokenRepo) Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*domain.RefreshToken, error) {
-	rt := &domain.RefreshToken{ID: tokenHash[:8], UserID: userID, TokenHash: tokenHash, ExpiresAt: expiresAt}
+func (f *fakeRefreshTokenRepo) Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*models.RefreshToken, error) {
+	rt := &models.RefreshToken{ID: tokenHash[:8], UserID: userID, TokenHash: tokenHash, ExpiresAt: expiresAt}
 	f.byHash[tokenHash] = rt
 	f.byID[rt.ID] = rt
 	return rt, nil
 }
 
-func (f *fakeRefreshTokenRepo) FindByHash(ctx context.Context, tokenHash string) (*domain.RefreshToken, error) {
+func (f *fakeRefreshTokenRepo) FindByHash(ctx context.Context, tokenHash string) (*models.RefreshToken, error) {
 	if rt, ok := f.byHash[tokenHash]; ok {
 		return rt, nil
 	}
@@ -71,18 +72,18 @@ func (f *fakeRefreshTokenRepo) RevokeAllForUser(ctx context.Context, userID stri
 	return nil
 }
 
-func newTestAuthService() (*AuthService, *fakeUserRepo, *fakeRefreshTokenRepo) {
+func newTestAuthService() (*Service, *fakeUserRepo, *fakeRefreshTokenRepo) {
 	pwHash, _ := hash.HashPassword("correct-password")
-	user := &domain.User{ID: "user-1", Username: "operator1", PasswordHash: pwHash, Role: domain.RoleOperator}
+	user := &models.User{ID: "user-1", Username: "operator1", PasswordHash: pwHash, Role: domain.RoleOperator}
 
 	users := &fakeUserRepo{
-		byUsername: map[string]*domain.User{"operator1": user},
-		byID:       map[string]*domain.User{"user-1": user},
+		byUsername: map[string]*models.User{"operator1": user},
+		byID:       map[string]*models.User{"user-1": user},
 	}
 	refreshTokens := newFakeRefreshTokenRepo()
 	issuer := jwt.NewIssuer("test-secret", 15*time.Minute)
 
-	return NewAuthService(users, refreshTokens, issuer, 7*24*time.Hour), users, refreshTokens
+	return NewService(users, refreshTokens, issuer, 7*24*time.Hour), users, refreshTokens
 }
 
 func TestLogin(t *testing.T) {
@@ -94,8 +95,8 @@ func TestLogin(t *testing.T) {
 		wantSuccess bool
 	}{
 		{name: "correct credentials", username: "operator1", password: "correct-password", wantSuccess: true},
-		{name: "unknown username", username: "ghost", password: "whatever", wantErrMsg: constants.AuthInvalidCredentials},
-		{name: "wrong password", username: "operator1", password: "wrong-password", wantErrMsg: constants.AuthInvalidCredentials},
+		{name: "unknown username", username: "ghost", password: "whatever", wantErrMsg: authconst.InvalidCredentials},
+		{name: "wrong password", username: "operator1", password: "wrong-password", wantErrMsg: authconst.InvalidCredentials},
 	}
 
 	for _, tt := range tests {
@@ -161,7 +162,7 @@ func TestRefresh(t *testing.T) {
 	t.Run("unknown token rejected", func(t *testing.T) {
 		svc, _, _ := newTestAuthService()
 		_, err := svc.Refresh(context.Background(), "not-a-real-token")
-		if domain.ClientMessage(err) != constants.AuthInvalidRefreshToken {
+		if domain.ClientMessage(err) != authconst.InvalidRefreshToken {
 			t.Fatalf("expected invalid refresh token error, got %v", err)
 		}
 	})
@@ -172,7 +173,7 @@ func TestRefresh(t *testing.T) {
 		refreshTokens.Create(context.Background(), "user-1", hashed, time.Now().Add(-time.Minute))
 
 		_, err := svc.Refresh(context.Background(), raw)
-		if domain.ClientMessage(err) != constants.AuthInvalidRefreshToken {
+		if domain.ClientMessage(err) != authconst.InvalidRefreshToken {
 			t.Fatalf("expected invalid refresh token error, got %v", err)
 		}
 	})
@@ -189,7 +190,7 @@ func TestRefresh(t *testing.T) {
 
 		// Attacker replays the now-revoked original token.
 		_, err = svc.Refresh(context.Background(), login.RefreshToken)
-		if domain.ClientMessage(err) != constants.AuthInvalidRefreshToken {
+		if domain.ClientMessage(err) != authconst.InvalidRefreshToken {
 			t.Fatalf("expected reuse to be rejected, got %v", err)
 		}
 
@@ -212,7 +213,7 @@ func TestLogout(t *testing.T) {
 		}
 
 		_, err := svc.Refresh(context.Background(), login.RefreshToken)
-		if domain.ClientMessage(err) != constants.AuthInvalidRefreshToken {
+		if domain.ClientMessage(err) != authconst.InvalidRefreshToken {
 			t.Fatalf("expected refresh to be rejected after logout, got %v", err)
 		}
 	})

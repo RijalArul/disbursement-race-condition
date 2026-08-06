@@ -5,22 +5,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/RijalArul/disbursement-race-condition/internal/constants"
+	authconst "github.com/RijalArul/disbursement-race-condition/internal/constants/auth"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/response"
-	"github.com/RijalArul/disbursement-race-condition/internal/service"
+	authsvc "github.com/RijalArul/disbursement-race-condition/internal/service/auth"
 )
 
 type AuthHandler struct {
-	auth *service.AuthService
+	auth *authsvc.Service
 }
 
-func NewAuthHandler(auth *service.AuthService) *AuthHandler {
+func NewAuthHandler(auth *authsvc.Service) *AuthHandler {
 	return &AuthHandler{auth: auth}
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
-	var req constants.LoginRequest
+	var req authconst.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.MapError(c, domain.Invalid("invalid request body"))
 		return
@@ -32,11 +32,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	response.OK(c, http.StatusOK, constants.TokenResponse{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken})
+	response.OK(c, http.StatusOK, authconst.TokenResponse{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken})
 }
 
 func (h *AuthHandler) Refresh(c *gin.Context) {
-	var req constants.RefreshRequest
+	var req authconst.RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.MapError(c, domain.Invalid("invalid request body"))
 		return
@@ -48,11 +48,11 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	response.OK(c, http.StatusOK, constants.TokenResponse{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken})
+	response.OK(c, http.StatusOK, authconst.TokenResponse{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken})
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
-	var req constants.RefreshRequest
+	var req authconst.RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.MapError(c, domain.Invalid("invalid request body"))
 		return
