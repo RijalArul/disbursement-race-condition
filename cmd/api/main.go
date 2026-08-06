@@ -15,9 +15,13 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/RijalArul/disbursement-race-condition/internal/config"
+	"github.com/RijalArul/disbursement-race-condition/internal/handler"
 	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
+	"github.com/RijalArul/disbursement-race-condition/internal/pkg/jwt"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/logger"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/response"
+	"github.com/RijalArul/disbursement-race-condition/internal/repository"
+	"github.com/RijalArul/disbursement-race-condition/internal/service"
 )
 
 func main() {
@@ -108,6 +112,20 @@ func newRouter(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	r.GET("/health", func(c *gin.Context) {
 		response.OK(c, http.StatusOK, gin.H{"status": "ok"})
 	})
+
+	issuer := jwt.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL)
+	userRepo := repository.NewUserRepository(db)
+	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
+	authService := service.NewAuthService(userRepo, refreshTokenRepo, issuer, cfg.JWTRefreshTTL)
+	authHandler := handler.NewAuthHandler(authService)
+
+	auth := r.Group("/auth")
+	auth.POST("/login", authHandler.Login)
+	auth.POST("/refresh", authHandler.Refresh)
+	auth.POST("/logout", authHandler.Logout)
+
+	// Every route besides /auth/* and /health must go through middleware.Auth(issuer),
+	// with middleware.RequireRole(...) added per-route as protected resources are wired up.
 
 	return r
 }
