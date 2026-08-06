@@ -18,6 +18,14 @@ type fakeDisbursementRepo struct {
 	saved   *models.Disbursement
 	calls   int
 	failErr error
+
+	getByIDResult *models.Disbursement
+	getByIDErr    error
+
+	listRows  []models.Disbursement
+	listTotal int64
+	listErr   error
+	listQuery disbconst.ListQuery
 }
 
 func (f *fakeDisbursementRepo) Create(ctx context.Context, d *models.Disbursement) error {
@@ -30,6 +38,21 @@ func (f *fakeDisbursementRepo) Create(ctx context.Context, d *models.Disbursemen
 	d.ID = "DSB-000001"
 	f.saved = d
 	return nil
+}
+
+func (f *fakeDisbursementRepo) GetByID(ctx context.Context, id string) (*models.Disbursement, error) {
+	if f.getByIDErr != nil {
+		return nil, f.getByIDErr
+	}
+	return f.getByIDResult, nil
+}
+
+func (f *fakeDisbursementRepo) List(ctx context.Context, q disbconst.ListQuery) ([]models.Disbursement, int64, error) {
+	f.listQuery = q
+	if f.listErr != nil {
+		return nil, 0, f.listErr
+	}
+	return f.listRows, f.listTotal, nil
 }
 
 const testUserID = "11111111-1111-1111-1111-111111111111"
@@ -218,5 +241,109 @@ func TestDisbursementServiceCreateRepositoryFailure(t *testing.T) {
 	}
 	if msg := domain.ClientMessage(err); msg != "" {
 		t.Errorf("client message = %q, want empty so the mapper answers 500 with a generic body", msg)
+	}
+}
+
+func TestDisbursementServiceGetByIDSuccess(t *testing.T) {
+	want := &models.Disbursement{ID: "DSB-000001", RecipientName: "Budi Santoso"}
+	repo := &fakeDisbursementRepo{getByIDResult: want}
+	svc := NewService(repo)
+
+	got, err := svc.GetByID(context.Background(), "DSB-000001")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got != want {
+		t.Errorf("GetByID returned a different disbursement than the repository provided")
+	}
+}
+
+func TestDisbursementServiceGetByIDNotFound(t *testing.T) {
+	repo := &fakeDisbursementRepo{getByIDErr: domain.ErrNotFound}
+	svc := NewService(repo)
+
+	_, err := svc.GetByID(context.Background(), "DSB-999999")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+	if msg := domain.ClientMessage(err); msg != disbconst.NotFound {
+		t.Errorf("client message = %q, want %q", msg, disbconst.NotFound)
+	}
+}
+
+func TestDisbursementServiceListDefaults(t *testing.T) {
+	repo := &fakeDisbursementRepo{listRows: nil, listTotal: 0}
+	svc := NewService(repo)
+
+	rows, meta, err := svc.List(context.Background(), disbconst.ListRequest{})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("rows = %v, want empty", rows)
+	}
+	if meta.Page != disbconst.DefaultPage || meta.Limit != disbconst.DefaultLimit {
+		t.Errorf("meta = %+v, want defaults page=%d limit=%d", meta, disbconst.DefaultPage, disbconst.DefaultLimit)
+	}
+	if meta.TotalPages != 0 {
+		t.Errorf("TotalPages = %d, want 0 for an empty result", meta.TotalPages)
+	}
+	if repo.listQuery.SortBy != "created_at" || repo.listQuery.SortOrder != "desc" {
+		t.Errorf("repo received sort %q %q, want default created_at desc", repo.listQuery.SortBy, repo.listQuery.SortOrder)
+	}
+}
+
+func TestDisbursementServiceListLimitClampedAt100(t *testing.T) {
+	repo := &fakeDisbursementRepo{}
+	svc := NewService(repo)
+
+	_, meta, err := svc.List(context.Background(), disbconst.ListRequest{Limit: "500"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if meta.Limit != disbconst.MaxLimit {
+		t.Errorf("Limit = %d, want clamped to %d", meta.Limit, disbconst.MaxLimit)
+	}
+	if repo.listQuery.Limit != disbconst.MaxLimit {
+		t.Errorf("repo received Limit = %d, want %d", repo.listQuery.Limit, disbconst.MaxLimit)
+	}
+}
+
+func TestDisbursementServiceListValidationFailureDoesNotQuery(t *testing.T) {
+	tests := []struct {
+		name        string
+		req         disbconst.ListRequest
+		wantMessage string
+	}{
+		{"negative page", disbconst.ListRequest{Page: "-1"}, disbconst.InvalidPage},
+		{"non-numeric page", disbconst.ListRequest{Page: "abc"}, disbconst.InvalidPage},
+		{"zero limit", disbconst.ListRequest{Limit: "0"}, disbconst.InvalidLimit},
+		{"invalid status", disbconst.ListRequest{Status: "BOGUS"}, disbconst.InvalidStatus},
+		{"invalid date_from format", disbconst.ListRequest{DateFrom: "06/08/2026"}, disbconst.InvalidDateFrom},
+		{"invalid date_to format", disbconst.ListRequest{DateTo: "not-a-date"}, disbconst.InvalidDateTo},
+		{"date_from after date_to", disbconst.ListRequest{DateFrom: "2026-08-10", DateTo: "2026-08-01"}, disbconst.DateRangeInvalid},
+		{"invalid sort_by", disbconst.ListRequest{SortBy: "internal_notes"}, disbconst.InvalidSortBy},
+		{"invalid sort_order", disbconst.ListRequest{SortOrder: "sideways"}, disbconst.InvalidSortOrder},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &fakeDisbursementRepo{}
+			svc := NewService(repo)
+
+			_, _, err := svc.List(context.Background(), tt.req)
+			if err == nil {
+				t.Fatal("expected a validation error, got nil")
+			}
+			if !errors.Is(err, domain.ErrInvalidInput) {
+				t.Errorf("expected ErrInvalidInput, got %v", err)
+			}
+			if msg := domain.ClientMessage(err); msg != tt.wantMessage {
+				t.Errorf("client message = %q, want %q", msg, tt.wantMessage)
+			}
+			if repo.listQuery != (disbconst.ListQuery{}) {
+				t.Error("repository was queried on validation failure")
+			}
+		})
 	}
 }

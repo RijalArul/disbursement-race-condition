@@ -1,6 +1,10 @@
 package disbursement
 
-import "time"
+import (
+	"time"
+
+	respconst "github.com/RijalArul/disbursement-race-condition/internal/constants/response"
+)
 
 // CreateRequest has no status/admin_fee/created_by/approved_by/id field — those are server-decided, never accepted from the body.
 type CreateRequest struct {
@@ -18,6 +22,30 @@ type CreateInput struct {
 	BankCode      string
 	Amount        int64
 	Note          *string
+}
+
+// ListRequest is the raw, unvalidated GET /disbursements query params as
+// bound from the URL — every field stays a string, since page/limit/dates
+// need service-layer validation before they become typed values.
+type ListRequest struct {
+	Page      string
+	Limit     string
+	Search    string
+	Status    string
+	DateFrom  string
+	DateTo    string
+	SortBy    string
+	SortOrder string
+}
+
+// ListQuery is the service's parsed, validated form of GET /disbursements
+// query params.
+type ListQuery struct {
+	respconst.PageQuery
+	Search   string
+	Status   string
+	DateFrom *time.Time
+	DateTo   *time.Time
 }
 
 // Response is the client-facing shape of a disbursement. Note is a pointer so
