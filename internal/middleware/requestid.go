@@ -21,7 +21,7 @@ func RequestID() gin.HandlerFunc {
 
 		ctx := logger.WithRequestID(c.Request.Context(), reqID)
 		c.Request = c.Request.WithContext(ctx)
-		c.Set("request_id", reqID)
+		c.Set(ContextKeyRequestID, reqID)
 
 		c.Next()
 	}

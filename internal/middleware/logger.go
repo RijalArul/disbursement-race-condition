@@ -15,12 +15,20 @@ func AccessLog() gin.HandlerFunc {
 		start := time.Now()
 		c.Next()
 
-		log := logger.FromCtx(c.Request.Context())
-		log.Info("request completed",
+		attrs := []any{
 			slog.String("method", c.Request.Method),
 			slog.String("path", c.Request.URL.Path),
-			slog.Int("status", c.Writer.Status()),
-			slog.Duration("duration", time.Since(start)),
-		)
+			slog.Int("status_code", c.Writer.Status()),
+			slog.Float64("latency_ms", float64(time.Since(start).Microseconds())/1000),
+		}
+
+		// Only authenticated requests carry a user. /auth/login and /health
+		// legitimately have none, and emitting "user":"" there would read as
+		// a user whose name is empty rather than as no user at all.
+		if username := c.GetString(ContextKeyUsername); username != "" {
+			attrs = append(attrs, slog.String("user", username))
+		}
+
+		logger.FromCtx(c.Request.Context()).Info("request completed", attrs...)
 	}
 }
