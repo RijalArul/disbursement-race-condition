@@ -31,3 +31,8 @@ var AllowedSortFields = map[string]bool{
 	"amount":     true,
 	"status":     true,
 }
+
+// AllowedAuditSortFields whitelists columns usable in ORDER BY for GET /audit-logs.
+var AllowedAuditSortFields = map[string]bool{
+	"created_at": true,
+}

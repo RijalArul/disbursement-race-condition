@@ -19,8 +19,8 @@ type DisbursementRepository interface {
 	Create(ctx context.Context, d *models.Disbursement) error
 	GetByID(ctx context.Context, id string) (*models.Disbursement, error)
 	List(ctx context.Context, q disbconst.ListQuery) ([]models.Disbursement, int64, error)
-	UpdateStatus(ctx context.Context, id string, status domain.DisbursementStatus, approvedBy string, note *string) (*models.Disbursement, error)
-	SoftDelete(ctx context.Context, id string) error
+	UpdateStatus(ctx context.Context, id string, status domain.DisbursementStatus, approvedBy string, note *string) (before, after *models.Disbursement, err error)
+	SoftDelete(ctx context.Context, id string) (before *models.Disbursement, err error)
 }
 
 type disbursementRepository struct {
@@ -94,50 +94,59 @@ func lockForUpdate(tx *gorm.DB, id string) (*models.Disbursement, error) {
 }
 
 // UpdateStatus locks the row FOR UPDATE and updates status/approved_by/note in the same transaction.
-func (r *disbursementRepository) UpdateStatus(ctx context.Context, id string, status domain.DisbursementStatus, approvedBy string, note *string) (*models.Disbursement, error) {
-	var updated *models.Disbursement
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		d, err := lockForUpdate(tx, id)
-		if err != nil {
-			return err
+func (r *disbursementRepository) UpdateStatus(ctx context.Context, id string, status domain.DisbursementStatus, approvedBy string, note *string) (before, after *models.Disbursement, err error) {
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		d, txErr := lockForUpdate(tx, id)
+		if txErr != nil {
+			return txErr
 		}
 		if d.Status != domain.StatusPending {
 			return domain.ErrConflict
 		}
+
+		snapshot := *d
+		before = &snapshot
 
 		d.Status = status
 		d.ApprovedBy = &approvedBy
 		d.Note = note
 		d.UpdatedAt = time.Now()
 
-		if err := tx.Model(d).
+		if txErr := tx.Model(d).
 			Select("Status", "ApprovedBy", "Note", "UpdatedAt").
-			Updates(d).Error; err != nil {
-			return err
+			Updates(d).Error; txErr != nil {
+			return txErr
 		}
-		updated = d
+		after = d
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return updated, nil
+	return before, after, nil
 }
 
 // SoftDelete locks the row FOR UPDATE and sets deleted_at in the same transaction.
-func (r *disbursementRepository) SoftDelete(ctx context.Context, id string) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		d, err := lockForUpdate(tx, id)
-		if err != nil {
-			return err
+func (r *disbursementRepository) SoftDelete(ctx context.Context, id string) (before *models.Disbursement, err error) {
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		d, txErr := lockForUpdate(tx, id)
+		if txErr != nil {
+			return txErr
 		}
 		if d.Status != domain.StatusPending {
 			return domain.ErrConflict
 		}
+
+		snapshot := *d
+		before = &snapshot
 
 		now := time.Now()
 		return tx.Model(d).
 			Select("DeletedAt", "UpdatedAt").
 			Updates(map[string]interface{}{"deleted_at": now, "updated_at": now}).Error
 	})
+	if err != nil {
+		return nil, err
+	}
+	return before, nil
 }

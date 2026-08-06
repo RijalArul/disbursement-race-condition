@@ -8,7 +8,8 @@ type AuditLog struct {
 	Action     string    `gorm:"column:action"`
 	EntityType string    `gorm:"column:entity_type"`
 	EntityID   string    `gorm:"column:entity_id"`
-	Metadata   []byte    `gorm:"column:metadata"`
+	Before     []byte    `gorm:"column:before"`
+	After      []byte    `gorm:"column:after"`
 	RequestID  string    `gorm:"column:request_id"`
 	CreatedAt  time.Time `gorm:"column:created_at"`
 }
