@@ -14,6 +14,7 @@ const (
 )
 
 type identityCtxKey struct{}
+type requestIDCtxKey struct{}
 
 // Identity is the authenticated caller, carried on context.Context so
 // services read it there instead of trusting request body fields like
@@ -33,4 +34,14 @@ func WithIdentity(ctx context.Context, userID, username, role string) context.Co
 func IdentityFromCtx(ctx context.Context) (Identity, bool) {
 	id, ok := ctx.Value(identityCtxKey{}).(Identity)
 	return id, ok
+}
+
+func WithRequestID(ctx context.Context, requestID string) context.Context {
+	return context.WithValue(ctx, requestIDCtxKey{}, requestID)
+}
+
+// RequestIDFromCtx returns the request id set by the RequestID middleware, or "" if absent.
+func RequestIDFromCtx(ctx context.Context) string {
+	id, _ := ctx.Value(requestIDCtxKey{}).(string)
+	return id
 }

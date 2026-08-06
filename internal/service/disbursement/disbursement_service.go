@@ -7,21 +7,32 @@ import (
 	"log/slog"
 	"strings"
 
+	auditconst "github.com/RijalArul/disbursement-race-condition/internal/constants/audit"
 	disbconst "github.com/RijalArul/disbursement-race-condition/internal/constants/disbursement"
 	respconst "github.com/RijalArul/disbursement-race-condition/internal/constants/response"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
 	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/logger"
+	"github.com/RijalArul/disbursement-race-condition/internal/pkg/pagination"
 	"github.com/RijalArul/disbursement-race-condition/internal/repository"
+	auditsvc "github.com/RijalArul/disbursement-race-condition/internal/service/audit"
 )
+
+// AuditEnqueuer is the audit-logging surface this service needs — just
+// enough to submit an event, defined here (not in package audit) so tests
+// fake it without a real worker pool or repository.
+type AuditEnqueuer interface {
+	Enqueue(ctx context.Context, ev auditsvc.Event)
+}
 
 type Service struct {
 	disbursements repository.DisbursementRepository
+	audits        AuditEnqueuer
 }
 
-func NewService(disbursements repository.DisbursementRepository) *Service {
-	return &Service{disbursements: disbursements}
+func NewService(disbursements repository.DisbursementRepository, audits AuditEnqueuer) *Service {
+	return &Service{disbursements: disbursements, audits: audits}
 }
 
 // Create validates input, derives server-controlled fields, and persists the disbursement.
@@ -62,7 +73,13 @@ func (s *Service) Create(ctx context.Context, in disbconst.CreateInput) (*models
 		slog.Int64("admin_fee", d.AdminFee),
 	)
 
-	// Audit event (action=created) lands with AUDIT-01, not here.
+	s.audits.Enqueue(ctx, auditsvc.Event{
+		ActorID:  identity.UserID,
+		Action:   auditconst.ActionCreated,
+		EntityID: d.ID,
+		Before:   nil,
+		After:    d,
+	})
 
 	return d, nil
 }
@@ -79,7 +96,7 @@ func (s *Service) List(ctx context.Context, in disbconst.ListRequest) ([]models.
 		return nil, respconst.PageMeta{}, fmt.Errorf("list disbursements: %w", err)
 	}
 
-	return rows, buildPageMeta(q.Page, q.Limit, total), nil
+	return rows, pagination.BuildPageMeta(q.Page, q.Limit, total), nil
 }
 
 // GetByID returns a disbursement by id, open to any authenticated role.
@@ -116,7 +133,7 @@ func (s *Service) UpdateStatus(ctx context.Context, in disbconst.UpdateStatusInp
 
 	identity, _ := middleware.IdentityFromCtx(ctx)
 
-	d, err := s.disbursements.UpdateStatus(ctx, in.ID, domain.DisbursementStatus(in.Status), identity.UserID, in.Note)
+	before, after, err := s.disbursements.UpdateStatus(ctx, in.ID, domain.DisbursementStatus(in.Status), identity.UserID, in.Note)
 	if err != nil {
 		conflictMsg := fmt.Sprintf(disbconst.AlreadyDecided, strings.ToLower(in.Status))
 		if mapped, ok := mapRepoError(err, disbconst.NotFound, conflictMsg); ok {
@@ -126,21 +143,30 @@ func (s *Service) UpdateStatus(ctx context.Context, in disbconst.UpdateStatusInp
 	}
 
 	log.Info("disbursement status updated",
-		slog.String("disbursement_id", d.ID),
-		slog.String("status", string(d.Status)),
+		slog.String("disbursement_id", after.ID),
+		slog.String("status", string(after.Status)),
 		slog.String("approved_by", identity.UserID),
 	)
 
-	// Audit event (action=approved/rejected) lands with AUDIT-01, not here.
+	s.audits.Enqueue(ctx, auditsvc.Event{
+		ActorID:  identity.UserID,
+		Action:   auditconst.ActionStatusChanged,
+		EntityID: after.ID,
+		Before:   before,
+		After:    after,
+	})
 
-	return d, nil
+	return after, nil
 }
 
 // Delete soft-deletes a PENDING disbursement, locked FOR UPDATE against a concurrent approve on the same row.
 func (s *Service) Delete(ctx context.Context, id string) error {
 	log := logger.FromCtx(ctx)
 
-	if err := s.disbursements.SoftDelete(ctx, id); err != nil {
+	identity, _ := middleware.IdentityFromCtx(ctx)
+
+	before, err := s.disbursements.SoftDelete(ctx, id)
+	if err != nil {
 		if mapped, ok := mapRepoError(err, disbconst.NotFound, fmt.Sprintf(disbconst.NotPending, "deleted")); ok {
 			return mapped
 		}
@@ -149,7 +175,13 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 
 	log.Info("disbursement deleted", slog.String("disbursement_id", id))
 
-	// Audit event (action=deleted) lands with AUDIT-01, not here.
+	s.audits.Enqueue(ctx, auditsvc.Event{
+		ActorID:  identity.UserID,
+		Action:   auditconst.ActionDeleted,
+		EntityID: id,
+		Before:   before,
+		After:    nil,
+	})
 
 	return nil
 }

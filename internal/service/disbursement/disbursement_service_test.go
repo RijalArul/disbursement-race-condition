@@ -6,10 +6,22 @@ import (
 	"testing"
 
 	disbconst "github.com/RijalArul/disbursement-race-condition/internal/constants/disbursement"
+	respconst "github.com/RijalArul/disbursement-race-condition/internal/constants/response"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
 	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
+	auditsvc "github.com/RijalArul/disbursement-race-condition/internal/service/audit"
 )
+
+// fakeAuditEnqueuer records every audit event submitted so tests can assert
+// on what would have been persisted, without a real worker pool.
+type fakeAuditEnqueuer struct {
+	events []auditsvc.Event
+}
+
+func (f *fakeAuditEnqueuer) Enqueue(ctx context.Context, ev auditsvc.Event) {
+	f.events = append(f.events, ev)
+}
 
 // fakeDisbursementRepo stands in for the database. It records what the service
 // asked it to persist so the tests can assert on the row itself, not merely on
@@ -27,12 +39,14 @@ type fakeDisbursementRepo struct {
 	listErr   error
 	listQuery disbconst.ListQuery
 
+	updateStatusBefore *models.Disbursement
 	updateStatusResult *models.Disbursement
 	updateStatusErr    error
 	updateStatusCalls  int
 
-	softDeleteErr   error
-	softDeleteCalls int
+	softDeleteBefore *models.Disbursement
+	softDeleteErr    error
+	softDeleteCalls  int
 }
 
 func (f *fakeDisbursementRepo) Create(ctx context.Context, d *models.Disbursement) error {
@@ -62,17 +76,20 @@ func (f *fakeDisbursementRepo) List(ctx context.Context, q disbconst.ListQuery) 
 	return f.listRows, f.listTotal, nil
 }
 
-func (f *fakeDisbursementRepo) UpdateStatus(ctx context.Context, id string, status domain.DisbursementStatus, approvedBy string, note *string) (*models.Disbursement, error) {
+func (f *fakeDisbursementRepo) UpdateStatus(ctx context.Context, id string, status domain.DisbursementStatus, approvedBy string, note *string) (before, after *models.Disbursement, err error) {
 	f.updateStatusCalls++
 	if f.updateStatusErr != nil {
-		return nil, f.updateStatusErr
+		return nil, nil, f.updateStatusErr
 	}
-	return f.updateStatusResult, nil
+	return f.updateStatusBefore, f.updateStatusResult, nil
 }
 
-func (f *fakeDisbursementRepo) SoftDelete(ctx context.Context, id string) error {
+func (f *fakeDisbursementRepo) SoftDelete(ctx context.Context, id string) (*models.Disbursement, error) {
 	f.softDeleteCalls++
-	return f.softDeleteErr
+	if f.softDeleteErr != nil {
+		return nil, f.softDeleteErr
+	}
+	return f.softDeleteBefore, nil
 }
 
 const testUserID = "11111111-1111-1111-1111-111111111111"
@@ -108,7 +125,7 @@ func TestDisbursementServiceCreateSuccess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &fakeDisbursementRepo{}
-			svc := NewService(repo)
+			svc := NewService(repo, &fakeAuditEnqueuer{})
 
 			in := validInput()
 			in.Amount = tt.amount
@@ -167,7 +184,7 @@ func TestDisbursementServiceCreateSuccess(t *testing.T) {
 // pins that the value written is the authenticated one.
 func TestDisbursementServiceCreatedByComesFromIdentity(t *testing.T) {
 	repo := &fakeDisbursementRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	const otherUser = "22222222-2222-2222-2222-222222222222"
 	ctx := middleware.WithIdentity(context.Background(), otherUser, "operator02", string(domain.RoleOperator))
@@ -183,7 +200,7 @@ func TestDisbursementServiceCreatedByComesFromIdentity(t *testing.T) {
 
 func TestDisbursementServiceCreateWithoutIdentity(t *testing.T) {
 	repo := &fakeDisbursementRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	_, err := svc.Create(context.Background(), validInput())
 	if err == nil {
@@ -223,7 +240,7 @@ func TestDisbursementServiceCreateValidationFailureDoesNotPersist(t *testing.T) 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &fakeDisbursementRepo{}
-			svc := NewService(repo)
+			svc := NewService(repo, &fakeAuditEnqueuer{})
 
 			in := validInput()
 			tt.mutate(&in)
@@ -250,7 +267,7 @@ func TestDisbursementServiceCreateValidationFailureDoesNotPersist(t *testing.T) 
 func TestDisbursementServiceCreateRepositoryFailure(t *testing.T) {
 	dbErr := errors.New("insert violates check constraint")
 	repo := &fakeDisbursementRepo{failErr: dbErr}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	_, err := svc.Create(authedCtx(), validInput())
 	if err == nil {
@@ -267,7 +284,7 @@ func TestDisbursementServiceCreateRepositoryFailure(t *testing.T) {
 func TestDisbursementServiceGetByIDSuccess(t *testing.T) {
 	want := &models.Disbursement{ID: "DSB-000001", RecipientName: "Budi Santoso"}
 	repo := &fakeDisbursementRepo{getByIDResult: want}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	got, err := svc.GetByID(context.Background(), "DSB-000001")
 	if err != nil {
@@ -280,7 +297,7 @@ func TestDisbursementServiceGetByIDSuccess(t *testing.T) {
 
 func TestDisbursementServiceGetByIDNotFound(t *testing.T) {
 	repo := &fakeDisbursementRepo{getByIDErr: domain.ErrNotFound}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	_, err := svc.GetByID(context.Background(), "DSB-999999")
 	if !errors.Is(err, domain.ErrNotFound) {
@@ -294,7 +311,7 @@ func TestDisbursementServiceGetByIDNotFound(t *testing.T) {
 func TestDisbursementServiceUpdateStatusSuccess(t *testing.T) {
 	want := &models.Disbursement{ID: "DSB-000001", Status: domain.StatusApproved}
 	repo := &fakeDisbursementRepo{updateStatusResult: want}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	got, err := svc.UpdateStatus(authedCtx(), disbconst.UpdateStatusInput{ID: "DSB-000001", Status: "APPROVED"})
 	if err != nil {
@@ -310,7 +327,7 @@ func TestDisbursementServiceUpdateStatusSuccess(t *testing.T) {
 
 func TestDisbursementServiceUpdateStatusInvalidValue(t *testing.T) {
 	repo := &fakeDisbursementRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	_, err := svc.UpdateStatus(authedCtx(), disbconst.UpdateStatusInput{ID: "DSB-000001", Status: "PENDING"})
 	if !errors.Is(err, domain.ErrInvalidInput) {
@@ -323,7 +340,7 @@ func TestDisbursementServiceUpdateStatusInvalidValue(t *testing.T) {
 
 func TestDisbursementServiceUpdateStatusAlreadyDecided(t *testing.T) {
 	repo := &fakeDisbursementRepo{updateStatusErr: domain.ErrConflict}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	_, err := svc.UpdateStatus(authedCtx(), disbconst.UpdateStatusInput{ID: "DSB-000001", Status: "APPROVED"})
 	if !errors.Is(err, domain.ErrConflict) {
@@ -336,7 +353,7 @@ func TestDisbursementServiceUpdateStatusAlreadyDecided(t *testing.T) {
 
 func TestDisbursementServiceUpdateStatusNotFound(t *testing.T) {
 	repo := &fakeDisbursementRepo{updateStatusErr: domain.ErrNotFound}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	_, err := svc.UpdateStatus(authedCtx(), disbconst.UpdateStatusInput{ID: "DSB-999999", Status: "REJECTED"})
 	if !errors.Is(err, domain.ErrNotFound) {
@@ -350,7 +367,7 @@ func TestDisbursementServiceUpdateStatusNotFound(t *testing.T) {
 func TestDisbursementServiceUpdateStatusApprovedByFromIdentity(t *testing.T) {
 	want := &models.Disbursement{ID: "DSB-000001", Status: domain.StatusApproved}
 	repo := &fakeDisbursementRepo{updateStatusResult: want}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	const approver = "33333333-3333-3333-3333-333333333333"
 	ctx := middleware.WithIdentity(context.Background(), approver, "admin01", string(domain.RoleAdmin))
@@ -363,7 +380,7 @@ func TestDisbursementServiceUpdateStatusApprovedByFromIdentity(t *testing.T) {
 
 func TestDisbursementServiceDeleteSuccess(t *testing.T) {
 	repo := &fakeDisbursementRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	if err := svc.Delete(context.Background(), "DSB-000001"); err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -375,7 +392,7 @@ func TestDisbursementServiceDeleteSuccess(t *testing.T) {
 
 func TestDisbursementServiceDeleteNotPending(t *testing.T) {
 	repo := &fakeDisbursementRepo{softDeleteErr: domain.ErrConflict}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	err := svc.Delete(context.Background(), "DSB-000001")
 	if !errors.Is(err, domain.ErrConflict) {
@@ -385,7 +402,7 @@ func TestDisbursementServiceDeleteNotPending(t *testing.T) {
 
 func TestDisbursementServiceDeleteNotFound(t *testing.T) {
 	repo := &fakeDisbursementRepo{softDeleteErr: domain.ErrNotFound}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	err := svc.Delete(context.Background(), "DSB-999999")
 	if !errors.Is(err, domain.ErrNotFound) {
@@ -398,7 +415,7 @@ func TestDisbursementServiceDeleteNotFound(t *testing.T) {
 
 func TestDisbursementServiceDeleteTwiceIsNotFoundSecondTime(t *testing.T) {
 	repo := &fakeDisbursementRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	if err := svc.Delete(context.Background(), "DSB-000001"); err != nil {
 		t.Fatalf("expected no error on first delete, got %v", err)
@@ -413,7 +430,7 @@ func TestDisbursementServiceDeleteTwiceIsNotFoundSecondTime(t *testing.T) {
 
 func TestDisbursementServiceListDefaults(t *testing.T) {
 	repo := &fakeDisbursementRepo{listRows: nil, listTotal: 0}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	rows, meta, err := svc.List(context.Background(), disbconst.ListRequest{})
 	if err != nil {
@@ -422,8 +439,8 @@ func TestDisbursementServiceListDefaults(t *testing.T) {
 	if len(rows) != 0 {
 		t.Errorf("rows = %v, want empty", rows)
 	}
-	if meta.Page != disbconst.DefaultPage || meta.Limit != disbconst.DefaultLimit {
-		t.Errorf("meta = %+v, want defaults page=%d limit=%d", meta, disbconst.DefaultPage, disbconst.DefaultLimit)
+	if meta.Page != respconst.DefaultPage || meta.Limit != respconst.DefaultLimit {
+		t.Errorf("meta = %+v, want defaults page=%d limit=%d", meta, respconst.DefaultPage, respconst.DefaultLimit)
 	}
 	if meta.TotalPages != 0 {
 		t.Errorf("TotalPages = %d, want 0 for an empty result", meta.TotalPages)
@@ -435,17 +452,17 @@ func TestDisbursementServiceListDefaults(t *testing.T) {
 
 func TestDisbursementServiceListLimitClampedAt100(t *testing.T) {
 	repo := &fakeDisbursementRepo{}
-	svc := NewService(repo)
+	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	_, meta, err := svc.List(context.Background(), disbconst.ListRequest{Limit: "500"})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if meta.Limit != disbconst.MaxLimit {
-		t.Errorf("Limit = %d, want clamped to %d", meta.Limit, disbconst.MaxLimit)
+	if meta.Limit != respconst.MaxLimit {
+		t.Errorf("Limit = %d, want clamped to %d", meta.Limit, respconst.MaxLimit)
 	}
-	if repo.listQuery.Limit != disbconst.MaxLimit {
-		t.Errorf("repo received Limit = %d, want %d", repo.listQuery.Limit, disbconst.MaxLimit)
+	if repo.listQuery.Limit != respconst.MaxLimit {
+		t.Errorf("repo received Limit = %d, want %d", repo.listQuery.Limit, respconst.MaxLimit)
 	}
 }
 
@@ -469,7 +486,7 @@ func TestDisbursementServiceListValidationFailureDoesNotQuery(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &fakeDisbursementRepo{}
-			svc := NewService(repo)
+			svc := NewService(repo, &fakeAuditEnqueuer{})
 
 			_, _, err := svc.List(context.Background(), tt.req)
 			if err == nil {

@@ -20,6 +20,7 @@ func RequestID() gin.HandlerFunc {
 		c.Writer.Header().Set(RequestIDHeader, reqID)
 
 		ctx := logger.WithRequestID(c.Request.Context(), reqID)
+		ctx = WithRequestID(ctx, reqID)
 		c.Request = c.Request.WithContext(ctx)
 		c.Set(ContextKeyRequestID, reqID)
 

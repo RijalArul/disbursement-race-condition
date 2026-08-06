@@ -22,7 +22,9 @@ import (
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/jwt"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/logger"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/response"
+	"github.com/RijalArul/disbursement-race-condition/internal/pkg/worker"
 	"github.com/RijalArul/disbursement-race-condition/internal/repository"
+	auditsvc "github.com/RijalArul/disbursement-race-condition/internal/service/audit"
 	authsvc "github.com/RijalArul/disbursement-race-condition/internal/service/auth"
 	disbsvc "github.com/RijalArul/disbursement-race-condition/internal/service/disbursement"
 )
@@ -49,7 +51,9 @@ func main() {
 	}
 	defer sqlDB.Close()
 
-	router := newRouter(cfg, db)
+	auditPool := worker.NewPool(cfg.AuditWorkerCount, cfg.AuditBufferSize, log)
+
+	router := newRouter(cfg, db, auditPool)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.AppPort,
@@ -78,6 +82,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	auditPool.Shutdown()
+
 	log.Info("server exited cleanly")
 }
 
@@ -100,7 +106,7 @@ func connectDB(cfg *config.Config) (*gorm.DB, error) {
 	return db, nil
 }
 
-func newRouter(cfg *config.Config, db *gorm.DB) *gin.Engine {
+func newRouter(cfg *config.Config, db *gorm.DB, auditPool *worker.Pool) *gin.Engine {
 	if cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -127,8 +133,12 @@ func newRouter(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	auth.POST("/refresh", authHandler.Refresh)
 	auth.POST("/logout", authHandler.Logout)
 
+	auditRepo := repository.NewAuditRepository(db)
+	auditService := auditsvc.NewService(auditRepo, auditPool)
+	auditHandler := handler.NewAuditHandler(auditService)
+
 	disbursementRepo := repository.NewDisbursementRepository(db)
-	disbursementService := disbsvc.NewService(disbursementRepo)
+	disbursementService := disbsvc.NewService(disbursementRepo, auditService)
 	disbursementHandler := handler.NewDisbursementHandler(disbursementService)
 	idempotencyRepo := repository.NewIdempotencyRepository(db)
 
@@ -140,6 +150,9 @@ func newRouter(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	disbursements.GET("/:id", disbursementHandler.GetByID)
 	disbursements.PATCH("/:id/status", middleware.RequireRole(domain.RoleAdmin, domain.RoleSuperAdmin), disbursementHandler.UpdateStatus)
 	disbursements.DELETE("/:id", middleware.RequireRole(domain.RoleSuperAdmin), disbursementHandler.Delete)
+
+	auditLogs := r.Group("/audit-logs", middleware.Auth(issuer), middleware.RequireRole(domain.RoleSuperAdmin))
+	auditLogs.GET("", auditHandler.List)
 
 	return r
 }
