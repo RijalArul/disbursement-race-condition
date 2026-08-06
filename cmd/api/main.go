@@ -17,6 +17,7 @@ import (
 	"github.com/RijalArul/disbursement-race-condition/internal/config"
 	"github.com/RijalArul/disbursement-race-condition/internal/handler"
 	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/idempotency"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/jwt"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/logger"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/response"
@@ -128,11 +129,12 @@ func newRouter(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	disbursementRepo := repository.NewDisbursementRepository(db)
 	disbursementService := disbsvc.NewService(disbursementRepo)
 	disbursementHandler := handler.NewDisbursementHandler(disbursementService)
+	idempotencyRepo := repository.NewIdempotencyRepository(db)
 
 	// Auth is mandatory here, not decorative: the service reads created_by from
 	// the identity this middleware puts on the request context.
 	disbursements := r.Group("/disbursements", middleware.Auth(issuer))
-	disbursements.POST("", disbursementHandler.Create)
+	disbursements.POST("", idempotency.Middleware(idempotencyRepo), disbursementHandler.Create)
 
 	// Remaining protected routes get middleware.RequireRole(...) per-route as
 	// they are wired up.
