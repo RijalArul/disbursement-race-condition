@@ -299,21 +299,34 @@ Hanya superadmin, dan hanya untuk disbursement berstatus `PENDING` (`409` jika b
 |---|---|---|
 | GET | `/audit-logs` | superadmin |
 
-Filter: `entity_id`, `action`, `date_from`, `date_to`, plus pagination standar.
+| Parameter | Tipe | Ketentuan |
+|---|---|---|
+| `page` | number | default `1` |
+| `limit` | number | default `20`, maksimum `100` |
+| `entity_id` | string | exact match |
+| `action` | string | `created` \| `status_changed` \| `deleted` |
+| `date_from` | date | `YYYY-MM-DD` |
+| `date_to` | date | `YYYY-MM-DD` |
+| `sort_by` | string | `created_at` (satu-satunya kolom yang diizinkan) |
+| `sort_order` | string | `asc` \| `desc` (default `desc`) |
+
+Envelope `meta` sama persis dengan `GET /disbursements`. `sort_by`/`sort_order` divalidasi terhadap whitelist yang sama seperti endpoint lain, tidak pernah disambung langsung ke SQL.
 
 ```json
 {
   "id": "LOG-000001",
   "entity_id": "DSB-000001",
   "action": "status_changed",
-  "actor": "admin",
-  "before": { "status": "PENDING" },
-  "after": { "status": "APPROVED" },
+  "actor": "33333333-3333-3333-3333-333333333333",
+  "before": { "status": "PENDING", "note": null },
+  "after": { "status": "APPROVED", "note": "Sudah diverifikasi" },
   "created_at": "2025-06-12T08:00:00Z"
 }
 ```
 
-Aksi yang dicatat: `created`, `status_changed`, `deleted`. Operasi baca dan aktivitas autentikasi tidak masuk tabel ini — cukup di structured log — agar tabel audit tetap kecil dan query-nya tetap cepat.
+`actor` adalah `user_id` (UUID) dari JWT, apa adanya — tidak di-resolve menjadi username, supaya `GET /audit-logs` tidak menambah query join di setiap pemanggilan.
+
+Aksi yang dicatat: `created`, `status_changed`, `deleted`. Untuk `created`, `before` selalu `null` (tidak ada state sebelumnya). Operasi baca dan aktivitas autentikasi tidak masuk tabel ini — cukup di structured log — agar tabel audit tetap kecil dan query-nya tetap cepat.
 
 ### Lain-lain
 
@@ -390,21 +403,21 @@ CREATE TABLE idempotency_keys (
 );
 CREATE INDEX idx_idem_expires ON idempotency_keys(expires_at);
 
-CREATE SEQUENCE audit_log_seq;
+CREATE SEQUENCE audit_log_id_seq;
 CREATE TABLE audit_logs (
-  id         VARCHAR(20)  PRIMARY KEY
-             DEFAULT 'LOG-' || lpad(nextval('audit_log_seq')::text, 6, '0'),
-  entity_id  VARCHAR(20)  NOT NULL,
-  action     VARCHAR(50)  NOT NULL,
-  actor      VARCHAR(50)  NOT NULL,
-  before     JSONB,
-  after      JSONB,
-  request_id UUID,
-  created_at TIMESTAMPTZ  NOT NULL DEFAULT now()
+  id          VARCHAR(16) PRIMARY KEY
+              DEFAULT 'LOG-' || lpad(nextval('audit_log_id_seq')::text, 6, '0'),
+  actor_id    UUID        NOT NULL REFERENCES users(id),
+  action      VARCHAR(64) NOT NULL,
+  entity_type VARCHAR(64) NOT NULL,
+  entity_id   VARCHAR(64) NOT NULL,
+  before      JSONB,
+  after       JSONB,
+  request_id  UUID        NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_audit_entity  ON audit_logs(entity_id, created_at DESC);
-CREATE INDEX idx_audit_action  ON audit_logs(action, created_at DESC);
-CREATE INDEX idx_audit_created ON audit_logs(created_at DESC);
+CREATE INDEX idx_audit_logs_entity      ON audit_logs(entity_type, entity_id);
+CREATE INDEX idx_audit_logs_created_at  ON audit_logs(created_at);
 ```
 
 Penjelasan tiap keputusan index ada di [ARCHITECTURE.md](ARCHITECTURE.md#skema-database). Ringkasnya:

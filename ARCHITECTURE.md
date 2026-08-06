@@ -63,6 +63,8 @@ Beberapa detail yang tidak boleh dilewat:
 
 **Kenapa bukan CDC.** Membaca WAL lewat Debezium punya masalah `actor` yang persis sama, kehilangan intent bisnis yang sama, dan menambah Kafka beserta Connect untuk mengaudit tiga jenis aksi. CDC adalah jawaban yang tepat untuk replikasi ke data warehouse atau search index, bukan untuk audit trail yang inti nilainya justru pada identitas pelaku.
 
+**`before`/`after` sebagai dua kolom JSONB terpisah**, bukan satu kolom `metadata` gabungan. Untuk `PATCH .../status` dan `DELETE`, snapshot baris sebelum mutasi diambil di dalam transaksi yang sama dengan `SELECT ... FOR UPDATE` — sebelum baris di-`UPDATE`, bukan lewat query tambahan. Konsekuensinya nol biaya query ekstra, dan `before` selalu konsisten dengan baris yang benar-benar dikunci. Untuk `POST /disbursements` (`action=created`), `before` selalu `null` karena tidak ada state sebelumnya.
+
 Kelemahan jujur dari pendekatan yang dipilih: event yang masih di buffer hilang kalau proses crash, dan perubahan yang dilakukan langsung lewat `psql` tidak tercatat. Mitigasi untuk yang kedua adalah kebijakan akses database, bukan trigger. Untuk yang pertama, langkah berikutnya adalah **transactional outbox** — menulis event ke tabel `audit_outbox` di dalam transaksi yang sama (atomic, tidak pernah hilang), lalu relay asinkron memindahkannya ke `audit_logs`. Itu pola yang lebih kuat, dan dipilih tidak dipakai sekarang hanya karena requirement menekankan sifat non-blocking secara harfiah.
 
 ### Skema database
