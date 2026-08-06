@@ -21,7 +21,8 @@ import (
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/logger"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/response"
 	"github.com/RijalArul/disbursement-race-condition/internal/repository"
-	"github.com/RijalArul/disbursement-race-condition/internal/service"
+	authsvc "github.com/RijalArul/disbursement-race-condition/internal/service/auth"
+	disbsvc "github.com/RijalArul/disbursement-race-condition/internal/service/disbursement"
 )
 
 func main() {
@@ -116,7 +117,7 @@ func newRouter(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	issuer := jwt.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL)
 	userRepo := repository.NewUserRepository(db)
 	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
-	authService := service.NewAuthService(userRepo, refreshTokenRepo, issuer, cfg.JWTRefreshTTL)
+	authService := authsvc.NewService(userRepo, refreshTokenRepo, issuer, cfg.JWTRefreshTTL)
 	authHandler := handler.NewAuthHandler(authService)
 
 	auth := r.Group("/auth")
@@ -124,8 +125,17 @@ func newRouter(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	auth.POST("/refresh", authHandler.Refresh)
 	auth.POST("/logout", authHandler.Logout)
 
-	// Every route besides /auth/* and /health must go through middleware.Auth(issuer),
-	// with middleware.RequireRole(...) added per-route as protected resources are wired up.
+	disbursementRepo := repository.NewDisbursementRepository(db)
+	disbursementService := disbsvc.NewService(disbursementRepo)
+	disbursementHandler := handler.NewDisbursementHandler(disbursementService)
+
+	// Auth is mandatory here, not decorative: the service reads created_by from
+	// the identity this middleware puts on the request context.
+	disbursements := r.Group("/disbursements", middleware.Auth(issuer))
+	disbursements.POST("", disbursementHandler.Create)
+
+	// Remaining protected routes get middleware.RequireRole(...) per-route as
+	// they are wired up.
 
 	return r
 }

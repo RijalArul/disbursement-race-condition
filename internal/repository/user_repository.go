@@ -7,11 +7,12 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
+	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
 )
 
 type UserRepository interface {
-	FindByUsername(ctx context.Context, username string) (*domain.User, error)
-	FindByID(ctx context.Context, id string) (*domain.User, error)
+	FindByUsername(ctx context.Context, username string) (*models.User, error)
+	FindByID(ctx context.Context, id string) (*models.User, error)
 }
 
 type userRepository struct {
@@ -22,8 +23,8 @@ func NewUserRepository(db *gorm.DB) UserRepository {
 	return &userRepository{db: db}
 }
 
-func (r *userRepository) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
-	var u domain.User
+func (r *userRepository) FindByUsername(ctx context.Context, username string) (*models.User, error) {
+	var u models.User
 	err := r.db.WithContext(ctx).Where("username = ?", username).First(&u).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, domain.ErrNotFound
@@ -34,8 +35,8 @@ func (r *userRepository) FindByUsername(ctx context.Context, username string) (*
 	return &u, nil
 }
 
-func (r *userRepository) FindByID(ctx context.Context, id string) (*domain.User, error) {
-	var u domain.User
+func (r *userRepository) FindByID(ctx context.Context, id string) (*models.User, error) {
+	var u models.User
 	err := r.db.WithContext(ctx).Where("id = ?", id).First(&u).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, domain.ErrNotFound

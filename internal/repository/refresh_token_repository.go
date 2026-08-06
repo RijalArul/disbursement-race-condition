@@ -9,11 +9,12 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
+	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
 )
 
 type RefreshTokenRepository interface {
-	Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*domain.RefreshToken, error)
-	FindByHash(ctx context.Context, tokenHash string) (*domain.RefreshToken, error)
+	Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*models.RefreshToken, error)
+	FindByHash(ctx context.Context, tokenHash string) (*models.RefreshToken, error)
 	Revoke(ctx context.Context, id string) error
 	RevokeAllForUser(ctx context.Context, userID string) error
 }
@@ -26,8 +27,8 @@ func NewRefreshTokenRepository(db *gorm.DB) RefreshTokenRepository {
 	return &refreshTokenRepository{db: db}
 }
 
-func (r *refreshTokenRepository) Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*domain.RefreshToken, error) {
-	rt := &domain.RefreshToken{
+func (r *refreshTokenRepository) Create(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*models.RefreshToken, error) {
+	rt := &models.RefreshToken{
 		ID:        uuid.NewString(),
 		UserID:    userID,
 		TokenHash: tokenHash,
@@ -39,8 +40,8 @@ func (r *refreshTokenRepository) Create(ctx context.Context, userID, tokenHash s
 	return rt, nil
 }
 
-func (r *refreshTokenRepository) FindByHash(ctx context.Context, tokenHash string) (*domain.RefreshToken, error) {
-	var rt domain.RefreshToken
+func (r *refreshTokenRepository) FindByHash(ctx context.Context, tokenHash string) (*models.RefreshToken, error) {
+	var rt models.RefreshToken
 	err := r.db.WithContext(ctx).Where("token_hash = ?", tokenHash).First(&rt).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, domain.ErrNotFound
@@ -53,14 +54,14 @@ func (r *refreshTokenRepository) FindByHash(ctx context.Context, tokenHash strin
 
 func (r *refreshTokenRepository) Revoke(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).
-		Model(&domain.RefreshToken{}).
+		Model(&models.RefreshToken{}).
 		Where("id = ? AND revoked_at IS NULL", id).
 		Update("revoked_at", time.Now()).Error
 }
 
 func (r *refreshTokenRepository) RevokeAllForUser(ctx context.Context, userID string) error {
 	return r.db.WithContext(ctx).
-		Model(&domain.RefreshToken{}).
+		Model(&models.RefreshToken{}).
 		Where("user_id = ? AND revoked_at IS NULL", userID).
 		Update("revoked_at", time.Now()).Error
 }
