@@ -1,24 +1,18 @@
 package disbursement
 
-// Business thresholds for disbursements (DSB-01). Kept as named constants so
-// the boundary values appear once and can be referenced by the tests that
-// assert on them, rather than being retyped as literals at each site.
+// Business thresholds for disbursements (DSB-01).
 const (
-	// MinAmount is the smallest amount that may be disbursed.
-	// Mirrored by CHECK (amount >= 10000) in migration 000001.
+	// MinAmount mirrors CHECK (amount >= 10000) in migration 000001.
 	MinAmount int64 = 10_000
 
-	// AdminFeeThreshold is the amount at and above which the higher admin fee
-	// applies. The comparison is >=, so an amount of exactly this value is
-	// charged AdminFeeHigh.
+	// AdminFeeThreshold: >= this amount charges AdminFeeHigh.
 	AdminFeeThreshold int64 = 5_000_000
 
 	AdminFeeLow  int64 = 2_500
 	AdminFeeHigh int64 = 5_000
 )
 
-// Validation messages for POST /disbursements. Each names the offending field
-// so a 400 tells the caller what to fix.
+// Validation messages for POST /disbursements.
 const (
 	InvalidBody           = "invalid request body"
 	RecipientNameRequired = "recipient_name is required"
@@ -27,7 +21,27 @@ const (
 	AmountBelowMinimum    = "amount must be at least 10000"
 )
 
-// Unauthenticated is returned when the service cannot read an identity from
-// context. It signals that the route was wired without the auth middleware,
-// since created_by is taken from JWT claims and never from the body.
+// Unauthenticated means the service found no identity in context.
 const Unauthenticated = "authentication required"
+
+// NotFound covers both a missing id and a soft-deleted row.
+const NotFound = "disbursement not found"
+
+// List pagination defaults and limits for GET /disbursements.
+const (
+	DefaultPage  = 1
+	DefaultLimit = 20
+	MaxLimit     = 100
+)
+
+// Validation messages for GET /disbursements query params.
+const (
+	InvalidPage      = "page must be a positive integer"
+	InvalidLimit     = "limit must be a positive integer"
+	InvalidStatus    = "status must be one of PENDING, APPROVED, REJECTED, FAILED"
+	InvalidDateFrom  = "date_from must be in YYYY-MM-DD format"
+	InvalidDateTo    = "date_to must be in YYYY-MM-DD format"
+	DateRangeInvalid = "date_from must not be after date_to"
+	InvalidSortBy    = "sort_by must be one of created_at, amount, status"
+	InvalidSortOrder = "sort_order must be asc or desc"
+)

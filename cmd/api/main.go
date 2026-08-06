@@ -135,6 +135,8 @@ func newRouter(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	// the identity this middleware puts on the request context.
 	disbursements := r.Group("/disbursements", middleware.Auth(issuer))
 	disbursements.POST("", idempotency.Middleware(idempotencyRepo), disbursementHandler.Create)
+	disbursements.GET("", disbursementHandler.List)
+	disbursements.GET("/:id", disbursementHandler.GetByID)
 
 	// Remaining protected routes get middleware.RequireRole(...) per-route as
 	// they are wired up.

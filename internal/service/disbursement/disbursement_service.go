@@ -2,10 +2,12 @@ package disbursement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
 	disbconst "github.com/RijalArul/disbursement-race-condition/internal/constants/disbursement"
+	respconst "github.com/RijalArul/disbursement-race-condition/internal/constants/response"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
 	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
@@ -61,5 +63,32 @@ func (s *Service) Create(ctx context.Context, in disbconst.CreateInput) (*models
 
 	// Audit event (action=created) lands with AUDIT-01, not here.
 
+	return d, nil
+}
+
+// List validates query params, fetches the matching page, and computes pagination meta.
+func (s *Service) List(ctx context.Context, in disbconst.ListRequest) ([]models.Disbursement, respconst.PageMeta, error) {
+	q, err := validateList(in)
+	if err != nil {
+		return nil, respconst.PageMeta{}, err
+	}
+
+	rows, total, err := s.disbursements.List(ctx, q)
+	if err != nil {
+		return nil, respconst.PageMeta{}, fmt.Errorf("list disbursements: %w", err)
+	}
+
+	return rows, buildPageMeta(q.Page, q.Limit, total), nil
+}
+
+// GetByID returns a disbursement by id, open to any authenticated role.
+func (s *Service) GetByID(ctx context.Context, id string) (*models.Disbursement, error) {
+	d, err := s.disbursements.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, domain.NotFound(disbconst.NotFound)
+		}
+		return nil, fmt.Errorf("get disbursement %s: %w", id, err)
+	}
 	return d, nil
 }

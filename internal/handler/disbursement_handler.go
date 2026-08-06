@@ -45,6 +45,47 @@ func (h *DisbursementHandler) Create(c *gin.Context) {
 	response.OK(c, http.StatusCreated, toDisbursementResponse(d))
 }
 
+// GetByID handles GET /disbursements/:id.
+func (h *DisbursementHandler) GetByID(c *gin.Context) {
+	d, err := h.disbursements.GetByID(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		response.MapError(c, err)
+		return
+	}
+
+	response.OK(c, http.StatusOK, toDisbursementResponse(d))
+}
+
+// List handles GET /disbursements: bind query params, call service once, map. No filtering/sorting logic lives here.
+func (h *DisbursementHandler) List(c *gin.Context) {
+	req := disbconst.ListRequest{
+		Page:      c.Query("page"),
+		Limit:     c.Query("limit"),
+		Search:    c.Query("search"),
+		Status:    c.Query("status"),
+		DateFrom:  c.Query("date_from"),
+		DateTo:    c.Query("date_to"),
+		SortBy:    c.Query("sort_by"),
+		SortOrder: c.Query("sort_order"),
+	}
+
+	rows, meta, err := h.disbursements.List(c.Request.Context(), req)
+	if err != nil {
+		response.MapError(c, err)
+		return
+	}
+
+	response.OKWithMeta(c, http.StatusOK, toDisbursementResponseList(rows), meta)
+}
+
+func toDisbursementResponseList(rows []models.Disbursement) []disbconst.Response {
+	out := make([]disbconst.Response, 0, len(rows))
+	for i := range rows {
+		out = append(out, toDisbursementResponse(&rows[i]))
+	}
+	return out
+}
+
 func toDisbursementResponse(d *models.Disbursement) disbconst.Response {
 	return disbconst.Response{
 		ID:            d.ID,
