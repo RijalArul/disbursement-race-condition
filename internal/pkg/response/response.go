@@ -1,27 +1,19 @@
 package response
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
 
-type Envelope struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   *ErrorBody  `json:"error,omitempty"`
-	Meta    interface{} `json:"meta,omitempty"`
-}
-
-type ErrorBody struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
+	respconst "github.com/RijalArul/disbursement-race-condition/internal/constants/response"
+)
 
 func OK(c *gin.Context, status int, data interface{}) {
-	c.JSON(status, Envelope{Success: true, Data: data})
+	c.JSON(status, respconst.Envelope{Success: true, Data: data})
 }
 
 func OKWithMeta(c *gin.Context, status int, data interface{}, meta interface{}) {
-	c.JSON(status, Envelope{Success: true, Data: data, Meta: meta})
+	c.JSON(status, respconst.Envelope{Success: true, Data: data, Meta: meta})
 }
 
 func Err(c *gin.Context, status int, code, message string) {
-	c.JSON(status, Envelope{Success: false, Error: &ErrorBody{Code: code, Message: message}})
+	c.JSON(status, respconst.Envelope{Success: false, Error: &respconst.ErrorBody{Code: code, Message: message}})
 }
