@@ -1,0 +1,8 @@
+.env
+CLAUDE.md
+.claude/
+.wolf/
+/disbursement-race-condition
+/disbursement-race-condition.exe
+*.exe
+.wolf-cerebrum-planning.md

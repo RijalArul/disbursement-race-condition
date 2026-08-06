@@ -1,0 +1,7 @@
+.git
+.env
+CLAUDE.md
+.claude/
+.wolf/
+bin/
+*.md
