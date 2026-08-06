@@ -76,3 +76,11 @@ Beberapa keputusan skema yang perlu penjelasan:
 **`UNIQUE (user_id, idempotency_key)`.** Dijelaskan di bagian 1.1.
 
 **Format ID sekuensial.** `DSB-000001` dan `LOG-000001` dihasilkan dari sequence PostgreSQL, mengikuti contoh pada spesifikasi. Kelemahannya nyata dan perlu disebut: ID sekuensial membocorkan volume transaksi kepada siapa pun yang membuat dua disbursement pada waktu berbeda, dan mudah dienumerasi untuk probing IDOR. Untuk production, ULID dengan prefix (`DSB-01H...`) memberi keunggulan yang sama — bisa dibaca manusia, terurut secara waktu — tanpa membocorkan volume.
+
+### Read caching untuk GET /disbursements (belum diimplementasikan)
+
+`GET /disbursements` dan `GET /disbursements/:id` saat ini selalu membaca dari PostgreSQL, tidak ada layer cache. Ini keputusan sadar, bukan kelalaian.
+
+Singleflight (menggabungkan request-request identik yang datang bersamaan supaya hanya satu yang benar-benar menyentuh database) sengaja tidak dipasang sekarang. Singleflight bekerja per proses — begitu aplikasi discale ke lebih dari satu instance, tiap instance punya singleflight sendiri-sendiri dan request identik yang jatuh ke instance berbeda tetap sama-sama menembus database. Dengan kata lain manfaatnya hilang tepat pada skenario yang justru butuh cache paling banyak. Alasan kedua: belum ada bukti beban baca yang menuntutnya — index parsial dan GIN trigram pada `recipient_name` seharusnya cukup menopang performa list/search di skala sekarang.
+
+Stack ini juga tidak memakai Redis, jadi tidak ada tempat alami untuk cache yang dibagi antar instance. Kalau nanti beban baca terbukti jadi bottleneck, langkah berikutnya adalah menambah Redis sebagai shared cache (TTL pendek, invalidasi saat ada write lewat jalur audit/event yang sudah ada) — bukan singleflight in-process, karena singleflight tidak bertahan begitu ada lebih dari satu instance.
