@@ -19,6 +19,18 @@ func NewAuthHandler(auth *authsvc.Service) *AuthHandler {
 	return &AuthHandler{auth: auth}
 }
 
+// Login authenticates a user and issues an access/refresh token pair.
+//
+//	@Summary	Login
+//	@Tags		auth
+//	@Accept		json
+//	@Produce	json
+//	@Param		request	body		auth.LoginRequest	true	"Credentials"
+//	@Success	200		{object}	response.Envelope{data=auth.TokenResponse}
+//	@Header		200		{string}	X-Request-ID	"Request correlation ID; echoed from the request header or generated if absent"
+//	@Failure	400		{object}	response.Envelope	"VALIDATION_ERROR: malformed body"
+//	@Failure	401		{object}	response.Envelope	"UNAUTHORIZED: invalid username or password"
+//	@Router		/auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req authconst.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -35,6 +47,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	response.OK(c, http.StatusOK, authconst.TokenResponse{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken})
 }
 
+// Refresh rotates a refresh token for a new access/refresh token pair.
+//
+//	@Summary	Refresh access token
+//	@Tags		auth
+//	@Accept		json
+//	@Produce	json
+//	@Param		request	body		auth.RefreshRequest	true	"Refresh token"
+//	@Success	200		{object}	response.Envelope{data=auth.TokenResponse}
+//	@Header		200		{string}	X-Request-ID	"Request correlation ID; echoed from the request header or generated if absent"
+//	@Failure	400		{object}	response.Envelope	"VALIDATION_ERROR: malformed body"
+//	@Failure	401		{object}	response.Envelope	"UNAUTHORIZED: token invalid, expired, revoked, or reused after rotation"
+//	@Router		/auth/refresh [post]
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req authconst.RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -51,6 +75,17 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	response.OK(c, http.StatusOK, authconst.TokenResponse{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken})
 }
 
+// Logout revokes a refresh token. Idempotent: an already-revoked or unknown token still returns 200.
+//
+//	@Summary	Logout
+//	@Tags		auth
+//	@Accept		json
+//	@Produce	json
+//	@Param		request	body		auth.RefreshRequest	true	"Refresh token"
+//	@Success	200		{object}	response.Envelope{data=object{message=string}}
+//	@Header		200		{string}	X-Request-ID	"Request correlation ID; echoed from the request header or generated if absent"
+//	@Failure	400		{object}	response.Envelope	"VALIDATION_ERROR: malformed body"
+//	@Router		/auth/logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
 	var req authconst.RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

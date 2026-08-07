@@ -1,0 +1,608 @@
+basePath: /
+definitions:
+  audit.Response:
+    properties:
+      action:
+        type: string
+      actor:
+        type: string
+      after: {}
+      before: {}
+      created_at:
+        type: string
+      entity_id:
+        type: string
+      id:
+        type: string
+    type: object
+  auth.LoginRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    required:
+    - password
+    - username
+    type: object
+  auth.RefreshRequest:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  auth.TokenResponse:
+    properties:
+      access_token:
+        type: string
+      refresh_token:
+        type: string
+    type: object
+  disbursement.CreateRequest:
+    properties:
+      account_number:
+        type: string
+      amount:
+        type: integer
+      bank_code:
+        type: string
+      note:
+        type: string
+      recipient_name:
+        type: string
+    type: object
+  disbursement.Response:
+    properties:
+      account_number:
+        type: string
+      admin_fee:
+        type: integer
+      amount:
+        type: integer
+      approved_by:
+        type: string
+      bank_code:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      note:
+        type: string
+      recipient_name:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  disbursement.UpdateStatusRequest:
+    properties:
+      note:
+        type: string
+      status:
+        type: string
+    type: object
+  response.Envelope:
+    properties:
+      data: {}
+      error:
+        $ref: '#/definitions/response.ErrorBody'
+      meta: {}
+      success:
+        type: boolean
+    type: object
+  response.ErrorBody:
+    properties:
+      code:
+        type: string
+      message:
+        type: string
+    type: object
+  response.PageMeta:
+    properties:
+      limit:
+        type: integer
+      page:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+info:
+  contact: {}
+  description: API disbursement dengan idempotency, approval yang aman terhadap race
+    condition, soft delete, audit trail terpisah, dan structured logging dengan propagasi
+    request ID.
+  title: Disbursement API
+  version: "1.0"
+paths:
+  /audit-logs:
+    get:
+      parameters:
+      - description: Page number, default 1
+        in: query
+        name: page
+        type: integer
+      - description: Page size, default 20, max 100
+        in: query
+        name: limit
+        type: integer
+      - description: Filter by the disbursement ID this entry is about
+        in: query
+        name: entity_id
+        type: string
+      - description: e.g. CREATED, APPROVED, REJECTED, DELETED
+        in: query
+        name: action
+        type: string
+      - description: RFC3339 lower bound on created_at
+        in: query
+        name: date_from
+        type: string
+      - description: RFC3339 upper bound on created_at
+        in: query
+        name: date_to
+        type: string
+      - description: Whitelisted column, e.g. created_at
+        in: query
+        name: sort_by
+        type: string
+      - description: asc or desc
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              description: Request correlation ID; echoed from the request header
+                or generated if absent
+              type: string
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/audit.Response'
+                  type: array
+                meta:
+                  $ref: '#/definitions/response.PageMeta'
+              type: object
+        "400":
+          description: 'VALIDATION_ERROR: sort_by/sort_order not in whitelist, or
+            invalid date'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 'FORBIDDEN: caller is not superadmin'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: List audit logs
+      tags:
+      - audit
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              description: Request correlation ID; echoed from the request header
+                or generated if absent
+              type: string
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.TokenResponse'
+              type: object
+        "400":
+          description: 'VALIDATION_ERROR: malformed body'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 'UNAUTHORIZED: invalid username or password'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: Login
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Refresh token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.RefreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              description: Request correlation ID; echoed from the request header
+                or generated if absent
+              type: string
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  properties:
+                    message:
+                      type: string
+                  type: object
+              type: object
+        "400":
+          description: 'VALIDATION_ERROR: malformed body'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: Logout
+      tags:
+      - auth
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Refresh token
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.RefreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              description: Request correlation ID; echoed from the request header
+                or generated if absent
+              type: string
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.TokenResponse'
+              type: object
+        "400":
+          description: 'VALIDATION_ERROR: malformed body'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 'UNAUTHORIZED: token invalid, expired, revoked, or reused after
+            rotation'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: Refresh access token
+      tags:
+      - auth
+  /disbursements:
+    get:
+      parameters:
+      - description: Page number, default 1
+        in: query
+        name: page
+        type: integer
+      - description: Page size, default 20, max 100
+        in: query
+        name: limit
+        type: integer
+      - description: Matches recipient_name or account_number
+        in: query
+        name: search
+        type: string
+      - description: PENDING, APPROVED, or REJECTED
+        in: query
+        name: status
+        type: string
+      - description: RFC3339 lower bound on created_at
+        in: query
+        name: date_from
+        type: string
+      - description: RFC3339 upper bound on created_at
+        in: query
+        name: date_to
+        type: string
+      - description: Whitelisted column, e.g. created_at, amount
+        in: query
+        name: sort_by
+        type: string
+      - description: asc or desc
+        in: query
+        name: sort_order
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              description: Request correlation ID; echoed from the request header
+                or generated if absent
+              type: string
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/disbursement.Response'
+                  type: array
+                meta:
+                  $ref: '#/definitions/response.PageMeta'
+              type: object
+        "400":
+          description: 'VALIDATION_ERROR: sort_by/sort_order not in whitelist, or
+            invalid date'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: List disbursements
+      tags:
+      - disbursements
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: UUID; a retried request with the same key and body within 24h
+          replays the first response
+        in: header
+        name: Idempotency-Key
+        type: string
+      - description: Disbursement details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/disbursement.CreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          headers:
+            X-Idempotent-Replayed:
+              description: true when this response is a replay of an earlier request
+                with the same Idempotency-Key
+              type: string
+            X-Request-ID:
+              description: Request correlation ID; echoed from the request header
+                or generated if absent
+              type: string
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/disbursement.Response'
+              type: object
+        "400":
+          description: 'VALIDATION_ERROR: missing field or amount below minimum'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 'UNAUTHORIZED: missing or invalid access token'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 'IDEMPOTENCY_IN_PROGRESS: a request with this key is still
+            processing'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "422":
+          description: 'IDEMPOTENCY_KEY_REUSED: same key, different request body'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "429":
+          description: RATE_LIMITED
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Create disbursement
+      tags:
+      - disbursements
+  /disbursements/{id}:
+    delete:
+      parameters:
+      - description: Disbursement ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No content
+          headers:
+            X-Request-ID:
+              description: Request correlation ID; echoed from the request header
+                or generated if absent
+              type: string
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 'FORBIDDEN: caller is not superadmin'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 'NOT_FOUND: unknown ID or already soft-deleted'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 'CONFLICT: disbursement is no longer PENDING'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Soft-delete a disbursement
+      tags:
+      - disbursements
+    get:
+      parameters:
+      - description: Disbursement ID, e.g. DSB-000001
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              description: Request correlation ID; echoed from the request header
+                or generated if absent
+              type: string
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/disbursement.Response'
+              type: object
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 'NOT_FOUND: unknown ID or soft-deleted'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Get disbursement
+      tags:
+      - disbursements
+  /disbursements/{id}/status:
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Disbursement ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'New status: APPROVED or REJECTED'
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/disbursement.UpdateStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              description: Request correlation ID; echoed from the request header
+                or generated if absent
+              type: string
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/disbursement.Response'
+              type: object
+        "400":
+          description: 'VALIDATION_ERROR: status is neither APPROVED nor REJECTED'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 'FORBIDDEN: caller is not admin or superadmin'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 'NOT_FOUND: unknown ID or soft-deleted'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 'CONFLICT: disbursement is no longer PENDING'
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Approve or reject a disbursement
+      tags:
+      - disbursements
+  /health:
+    get:
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              description: Request correlation ID; echoed from the request header
+                or generated if absent
+              type: string
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  properties:
+                    status:
+                      type: string
+                  type: object
+              type: object
+      summary: Health check
+      tags:
+      - health
+securityDefinitions:
+  BearerAuth:
+    description: 'Ketik "Bearer" diikuti spasi dan access token, contoh: "Bearer eyJhbGciOi..."'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

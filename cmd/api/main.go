@@ -11,9 +11,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	_ "github.com/RijalArul/disbursement-race-condition/docs"
 	"github.com/RijalArul/disbursement-race-condition/internal/config"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	"github.com/RijalArul/disbursement-race-condition/internal/handler"
@@ -29,6 +32,14 @@ import (
 	disbsvc "github.com/RijalArul/disbursement-race-condition/internal/service/disbursement"
 )
 
+// @title						Disbursement API
+// @version					1.0
+// @description				API disbursement dengan idempotency, approval yang aman terhadap race condition, soft delete, audit trail terpisah, dan structured logging dengan propagasi request ID.
+// @BasePath					/
+// @securityDefinitions.apikey	BearerAuth
+// @in							header
+// @name						Authorization
+// @description				Ketik "Bearer" diikuti spasi dan access token, contoh: "Bearer eyJhbGciOi..."
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -106,6 +117,17 @@ func connectDB(cfg *config.Config) (*gorm.DB, error) {
 	return db, nil
 }
 
+// healthHandler reports liveness.
+//
+//	@Summary	Health check
+//	@Tags		health
+//	@Success	200	{object}	response.Envelope{data=object{status=string}}
+//	@Header		200	{string}	X-Request-ID	"Request correlation ID; echoed from the request header or generated if absent"
+//	@Router		/health [get]
+func healthHandler(c *gin.Context) {
+	response.OK(c, http.StatusOK, gin.H{"status": "ok"})
+}
+
 func newRouter(cfg *config.Config, db *gorm.DB, auditPool *worker.Pool) *gin.Engine {
 	if cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -118,9 +140,9 @@ func newRouter(cfg *config.Config, db *gorm.DB, auditPool *worker.Pool) *gin.Eng
 		response.Err(c, http.StatusNotFound, "NOT_FOUND", "resource not found")
 	})
 
-	r.GET("/health", func(c *gin.Context) {
-		response.OK(c, http.StatusOK, gin.H{"status": "ok"})
-	})
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
+	r.GET("/health", healthHandler)
 
 	issuer := jwt.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL)
 	userRepo := repository.NewUserRepository(db)

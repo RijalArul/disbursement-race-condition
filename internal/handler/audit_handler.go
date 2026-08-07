@@ -23,7 +23,26 @@ func NewAuditHandler(audits *auditsvc.Service) *AuditHandler {
 	return &AuditHandler{audits: audits}
 }
 
-// List handles GET /audit-logs: bind query params, call service once, map. No filtering/sorting logic lives here.
+// List returns audit log entries with filtering, sorting, and pagination. Requires superadmin.
+//
+//	@Summary	List audit logs
+//	@Tags		audit
+//	@Produce	json
+//	@Security	BearerAuth
+//	@Param		page		query		int		false	"Page number, default 1"
+//	@Param		limit		query		int		false	"Page size, default 20, max 100"
+//	@Param		entity_id	query		string	false	"Filter by the disbursement ID this entry is about"
+//	@Param		action		query		string	false	"e.g. CREATED, APPROVED, REJECTED, DELETED"
+//	@Param		date_from	query		string	false	"RFC3339 lower bound on created_at"
+//	@Param		date_to		query		string	false	"RFC3339 upper bound on created_at"
+//	@Param		sort_by		query		string	false	"Whitelisted column, e.g. created_at"
+//	@Param		sort_order	query		string	false	"asc or desc"
+//	@Success	200			{object}	response.Envelope{data=[]audit.Response,meta=response.PageMeta}
+//	@Header		200			{string}	X-Request-ID	"Request correlation ID; echoed from the request header or generated if absent"
+//	@Failure	400			{object}	response.Envelope	"VALIDATION_ERROR: sort_by/sort_order not in whitelist, or invalid date"
+//	@Failure	401			{object}	response.Envelope	"UNAUTHORIZED"
+//	@Failure	403			{object}	response.Envelope	"FORBIDDEN: caller is not superadmin"
+//	@Router		/audit-logs [get]
 func (h *AuditHandler) List(c *gin.Context) {
 	req := auditconst.ListRequest{
 		Page:      c.Query("page"),
