@@ -26,11 +26,13 @@ Trade-off pessimistic adalah lock ditahan selama transaksi berlangsung. Karena i
 
 Alternatif setara adalah `UPDATE ... WHERE id = ? AND status = 'PENDING'` lalu memeriksa `RowsAffected`. Itu lock-free dan hanya satu roundtrip, tapi kurang eksplisit saat dibaca dan lebih sulit diperluas ketika nanti ada aturan validasi tambahan sebelum penulisan.
 
-`DELETE /disbursements/:id` (soft delete) memakai lock `FOR UPDATE` yang sama pada baris yang sama, di dalam pola transaksi yang identik. Karena approve dan delete mengunci baris yang sama, keduanya tidak bisa berjalan bersamaan pada disbursement yang sama — salah satu menunggu di `SELECT ... FOR UPDATE` sampai yang lain commit, lalu membaca status yang sudah berubah dan gagal pengecekan `status = PENDING`.
-
 ---
 
 ## Keputusan Pendukung
+
+### Soft delete memakai lock yang sama dengan approve
+
+`DELETE /disbursements/:id` (soft delete) memakai lock `FOR UPDATE` yang sama pada baris yang sama, di dalam pola transaksi yang identik dengan 1.2. Karena approve dan delete mengunci baris yang sama, keduanya tidak bisa berjalan bersamaan pada disbursement yang sama — salah satu menunggu di `SELECT ... FOR UPDATE` sampai yang lain commit, lalu membaca status yang sudah berubah dan gagal pengecekan `status = PENDING`.
 
 ### Penyimpanan refresh token: PostgreSQL, di-hash
 
