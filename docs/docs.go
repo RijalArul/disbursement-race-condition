@@ -736,6 +736,9 @@ const docTemplate = `{
         },
         "/health": {
             "get": {
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "health"
                 ],
@@ -752,12 +755,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "object",
-                                            "properties": {
-                                                "status": {
-                                                    "type": "string"
-                                                }
-                                            }
+                                            "$ref": "#/definitions/health.Response"
                                         }
                                     }
                                 }
@@ -768,6 +766,12 @@ const docTemplate = `{
                                 "type": "string",
                                 "description": "Request correlation ID; echoed from the request header or generated if absent"
                             }
+                        }
+                    },
+                    "503": {
+                        "description": "DATABASE_UNAVAILABLE: the API is up but cannot reach its database",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
                         }
                     }
                 }
@@ -899,6 +903,17 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "note": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "health.Response": {
+            "type": "object",
+            "properties": {
+                "database": {
                     "type": "string"
                 },
                 "status": {

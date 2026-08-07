@@ -86,6 +86,13 @@ definitions:
       status:
         type: string
     type: object
+  health.Response:
+    properties:
+      database:
+        type: string
+      status:
+        type: string
+    type: object
   response.Envelope:
     properties:
       data: {}
@@ -578,6 +585,8 @@ paths:
       - disbursements
   /health:
     get:
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
@@ -591,11 +600,12 @@ paths:
             - $ref: '#/definitions/response.Envelope'
             - properties:
                 data:
-                  properties:
-                    status:
-                      type: string
-                  type: object
+                  $ref: '#/definitions/health.Response'
               type: object
+        "503":
+          description: 'DATABASE_UNAVAILABLE: the API is up but cannot reach its database'
+          schema:
+            $ref: '#/definitions/response.Envelope'
       summary: Health check
       tags:
       - health

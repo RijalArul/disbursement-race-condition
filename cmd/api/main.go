@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	audithdl "github.com/RijalArul/disbursement-race-condition/internal/handler/audit"
 	authhdl "github.com/RijalArul/disbursement-race-condition/internal/handler/auth"
 	disbhdl "github.com/RijalArul/disbursement-race-condition/internal/handler/disbursement"
+	healthhdl "github.com/RijalArul/disbursement-race-condition/internal/handler/health"
 	"github.com/RijalArul/disbursement-race-condition/internal/middleware/common"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/jwt"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/logger"
@@ -60,7 +62,7 @@ func main() {
 
 	auditPool := worker.NewPool(cfg.AuditWorkerCount, cfg.AuditBufferSize, log)
 
-	router := newRouter(cfg, db, auditPool)
+	router := newRouter(cfg, db, sqlDB, auditPool)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.AppPort,
@@ -113,18 +115,7 @@ func connectDB(cfg *config.Config) (*gorm.DB, error) {
 	return db, nil
 }
 
-// healthHandler reports liveness.
-//
-//	@Summary	Health check
-//	@Tags		health
-//	@Success	200	{object}	response.Envelope{data=object{status=string}}
-//	@Header		200	{string}	X-Request-ID	"Request correlation ID; echoed from the request header or generated if absent"
-//	@Router		/health [get]
-func healthHandler(c *gin.Context) {
-	response.OK(c, http.StatusOK, gin.H{"status": "ok"})
-}
-
-func newRouter(cfg *config.Config, db *gorm.DB, auditPool *worker.Pool) *gin.Engine {
+func newRouter(cfg *config.Config, db *gorm.DB, sqlDB *sql.DB, auditPool *worker.Pool) *gin.Engine {
 	if cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -138,7 +129,7 @@ func newRouter(cfg *config.Config, db *gorm.DB, auditPool *worker.Pool) *gin.Eng
 
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	r.GET("/health", healthHandler)
+	healthhdl.RegisterRoutes(r, healthhdl.New(sqlDB))
 
 	issuer := jwt.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL)
 
