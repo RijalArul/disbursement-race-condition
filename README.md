@@ -44,12 +44,17 @@ File di `docs/` (`docs.go`, `swagger.json`, `swagger.yaml`) hasil generate dari 
 
 Butuh Go 1.26 dan PostgreSQL 16 yang sudah berjalan.
 
+Kalau databasenya dipinjam dari compose (`docker compose up -d postgres`), port host-nya **5434**, bukan 5432 — compose memetakan `5434:5432` supaya tidak bentrok dengan Postgres lain yang mungkin sudah jalan di mesin. `.env.example` sudah memakai 5434. Untuk Postgres yang dipasang sendiri, sesuaikan `DB_PORT` ke port instance tersebut.
+
 ```bash
 cp .env.example .env      # sesuaikan kredensial database
+set -a; . ./.env; set +a   # muat .env ke shell — make migrate-up membaca DATABASE_URL
 make migrate-up
 make seed
 make run
 ```
+
+`make migrate-up` dan `make migrate-down` memanggil binary `golang-migrate`, yang membaca `DATABASE_URL` dari shell — bukan lewat `config.Load()` seperti aplikasinya. Karena itu `DATABASE_URL` ada di `.env.example` sebagai satu-satunya variabel yang bentuknya URL, dan harus ter-export sebelum target migrate dijalankan. Aplikasi sendiri tidak pernah membacanya.
 
 ### Perintah lain
 
@@ -71,7 +76,7 @@ Seluruh konfigurasi lewat environment variable. Aplikasi gagal saat boot dengan 
 | `APP_PORT` | `8080` | |
 | `APP_ENV` | `development` | memengaruhi format log dan detail error |
 | `DB_HOST` | — | wajib |
-| `DB_PORT` | `5432` | |
+| `DB_PORT` | — | wajib — tidak punya default, boot gagal kalau kosong |
 | `DB_USER` | — | wajib |
 | `DB_PASSWORD` | — | wajib |
 | `DB_NAME` | — | wajib |
@@ -82,7 +87,6 @@ Seluruh konfigurasi lewat environment variable. Aplikasi gagal saat boot dengan 
 | `JWT_SECRET` | — | wajib, aplikasi menolak boot kalau kosong |
 | `JWT_ACCESS_TTL` | `15m` | |
 | `JWT_REFRESH_TTL` | `168h` | 7 hari |
-| `IDEMPOTENCY_TTL` | `24h` | |
 | `AUDIT_WORKER_COUNT` | `4` | |
 | `AUDIT_BUFFER_SIZE` | `1024` | |
 | `RATE_LIMIT_CREATE` | `30` | per menit per user |
@@ -90,6 +94,11 @@ Seluruh konfigurasi lewat environment variable. Aplikasi gagal saat boot dengan 
 | `RATE_LIMIT_LOGIN_IP` | `10` | per menit per IP, khusus `POST /auth/login` |
 | `RATE_LIMIT_LOGIN_USERNAME` | `5` | per menit per username, khusus `POST /auth/login` |
 | `LOG_LEVEL` | `info` | |
+| `DATABASE_URL` | — | hanya untuk `make migrate-up`/`migrate-down`; tidak pernah dibaca aplikasi |
+
+Yang wajib persis: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `JWT_SECRET`. Kosong salah satu, boot berhenti dengan pesan yang menyebut nama variabelnya.
+
+Masa berlaku key idempotency (24 jam) tidak ada di daftar ini karena bukan environment variable: nilainya default kolom `idempotency_keys.expires_at` di migration, dicerminkan oleh satu konstanta di `internal/repository/idempotency`. Menaruhnya di dua tempat yang bisa berbeda — env aplikasi dan default kolom — justru membuka celah keduanya tidak sinkron.
 
 ---
 
@@ -202,7 +211,6 @@ Idempotent — logout dua kali tetap `200`. Access token yang sudah terbit tetap
 | GET | `/disbursements` | semua | daftar dengan filter, pencarian, sorting, pagination |
 | GET | `/disbursements/:id` | semua | detail |
 | POST | `/disbursements` | semua | mendukung `Idempotency-Key` |
-| POST | `/disbursements/batch` | semua | partial success |
 | PATCH | `/disbursements/:id/status` | admin, superadmin | concurrency-safe |
 | DELETE | `/disbursements/:id` | superadmin | soft delete |
 
@@ -214,7 +222,7 @@ Idempotent — logout dua kali tetap `200`. Access token yang sudah terbit tetap
 | `page` | number | default `1` |
 | `limit` | number | default `20`, maksimum `100` |
 | `search` | string | partial match pada `recipient_name` |
-| `status` | string | `PENDING` \| `APPROVED` \| `REJECTED` |
+| `status` | string | `PENDING` \| `APPROVED` \| `REJECTED` \| `FAILED` |
 | `date_from` | date | `YYYY-MM-DD` |
 | `date_to` | date | `YYYY-MM-DD` |
 | `sort_by` | string | `created_at` \| `amount` (default `created_at`) |
@@ -235,6 +243,8 @@ curl -G http://localhost:8080/disbursements \
 ```
 
 `sort_by` dan `sort_order` divalidasi terhadap whitelist, tidak pernah disambung langsung ke SQL. Baris yang sudah di-soft-delete tidak pernah muncul.
+
+`FAILED` diterima sebagai nilai filter karena ada di enum `disbursement_status`, tapi tidak ada endpoint yang menyetelnya — status itu disiapkan untuk kegagalan yang datang dari payment rail, yang di luar scope test ini. `PATCH .../status` tetap hanya menerima `APPROVED` dan `REJECTED`.
 </details>
 
 <details>
@@ -339,75 +349,79 @@ Aksi yang dicatat: `created`, `status_changed`, `deleted`. Untuk `created`, `bef
 | GET | `/health` | publik |
 | GET | `/swagger/index.html` | publik |
 
-`/health` mengembalikan `503` bila database tidak terjangkau.
+`/health` melakukan `PingContext` ke pool koneksi yang sama dengan yang melayani request biasa, dengan timeout 2 detik. Database terjangkau → `200` dengan `{"status":"ok","database":"up"}`. Tidak terjangkau → `503` dengan kode `DATABASE_UNAVAILABLE`; detail error dari driver hanya masuk server log, tidak pernah ke response. Endpoint ini di luar JWT dan di luar rate limiter — probe orchestrator tidak punya token, dan menjegal probe saat trafik ramai justru memicu restart palsu.
 
 ---
 
 ## Schema Database
 
+Bentuk akhir setelah seluruh migration dijalankan (`000001_init`, `000002_add_bank_code_and_note`, `000003_audit_logs_before_after`, `000004_disbursements_amount_index`). Sumber kebenarannya adalah file di `migrations/`, bukan blok di bawah ini.
+
 ```sql
-CREATE TYPE user_role           AS ENUM ('operator','admin','superadmin');
-CREATE TYPE disbursement_status AS ENUM ('PENDING','APPROVED','REJECTED');
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TYPE user_role           AS ENUM ('superadmin','admin','operator');
+CREATE TYPE disbursement_status AS ENUM ('PENDING','APPROVED','REJECTED','FAILED');
 CREATE TYPE idem_state          AS ENUM ('PROCESSING','COMPLETED');
 
 CREATE TABLE users (
-  id            BIGSERIAL    PRIMARY KEY,
-  username      VARCHAR(50)  NOT NULL UNIQUE,
-  password_hash VARCHAR(255) NOT NULL,
-  role          user_role    NOT NULL,
-  created_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  username      VARCHAR(64) NOT NULL UNIQUE,
+  password_hash VARCHAR(60) NOT NULL,
+  role          user_role   NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE refresh_tokens (
-  id         BIGSERIAL   PRIMARY KEY,
-  user_id    BIGINT      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID        NOT NULL REFERENCES users(id),
   token_hash CHAR(64)    NOT NULL UNIQUE,
   expires_at TIMESTAMPTZ NOT NULL,
   revoked_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_rt_user_active ON refresh_tokens(user_id) WHERE revoked_at IS NULL;
-CREATE INDEX idx_rt_expires     ON refresh_tokens(expires_at);
+CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 
-CREATE SEQUENCE disbursement_seq;
+CREATE SEQUENCE disbursement_id_seq;
+CREATE SEQUENCE audit_log_id_seq;
+
 CREATE TABLE disbursements (
-  id             VARCHAR(20)  PRIMARY KEY
-                 DEFAULT 'DSB-' || lpad(nextval('disbursement_seq')::text, 6, '0'),
+  id             VARCHAR(16)  PRIMARY KEY
+                 DEFAULT 'DSB-' || lpad(nextval('disbursement_id_seq')::text, 6, '0'),
   recipient_name VARCHAR(255) NOT NULL,
-  account_number VARCHAR(50)  NOT NULL,
-  bank_code      VARCHAR(20)  NOT NULL,
+  account_number VARCHAR(64)  NOT NULL,
+  bank_code      VARCHAR(32)  NOT NULL,          -- 000002
   amount         BIGINT       NOT NULL CHECK (amount >= 10000),
-  admin_fee      BIGINT       NOT NULL,
-  note           TEXT,
+  admin_fee      BIGINT       NOT NULL DEFAULT 0,
+  note           TEXT,                           -- 000002
   status         disbursement_status NOT NULL DEFAULT 'PENDING',
-  created_by     VARCHAR(50)  NOT NULL,
-  approved_by    VARCHAR(50),
+  created_by     UUID         NOT NULL REFERENCES users(id),
+  approved_by    UUID         REFERENCES users(id),
   created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
   updated_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
   deleted_at     TIMESTAMPTZ
 );
-CREATE INDEX idx_dsb_created ON disbursements(created_at DESC)         WHERE deleted_at IS NULL;
-CREATE INDEX idx_dsb_amount  ON disbursements(amount)                  WHERE deleted_at IS NULL;
-CREATE INDEX idx_dsb_status  ON disbursements(status, created_at DESC) WHERE deleted_at IS NULL;
-
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE INDEX idx_dsb_recipient ON disbursements USING gin (recipient_name gin_trgm_ops);
+CREATE INDEX idx_disbursements_status     ON disbursements(status)     WHERE deleted_at IS NULL;
+CREATE INDEX idx_disbursements_created_by ON disbursements(created_by) WHERE deleted_at IS NULL;
+CREATE INDEX idx_disbursements_created_at ON disbursements(created_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_disbursements_amount     ON disbursements(amount)     WHERE deleted_at IS NULL;  -- 000004
+CREATE INDEX idx_disbursements_recipient_name_trgm
+  ON disbursements USING GIN (recipient_name gin_trgm_ops) WHERE deleted_at IS NULL;
 
 CREATE TABLE idempotency_keys (
-  id              BIGSERIAL   PRIMARY KEY,
-  user_id         BIGINT      NOT NULL REFERENCES users(id),
-  idempotency_key UUID        NOT NULL,
+  id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID        NOT NULL REFERENCES users(id),
+  idempotency_key VARCHAR(64) NOT NULL,
   request_hash    CHAR(64)    NOT NULL,
   state           idem_state  NOT NULL DEFAULT 'PROCESSING',
   response_status INT,
-  response_body   JSONB,
+  response_body   BYTEA,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  expires_at      TIMESTAMPTZ NOT NULL,
+  expires_at      TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '24 hours'),
   UNIQUE (user_id, idempotency_key)
 );
-CREATE INDEX idx_idem_expires ON idempotency_keys(expires_at);
 
-CREATE SEQUENCE audit_log_id_seq;
 CREATE TABLE audit_logs (
   id          VARCHAR(16) PRIMARY KEY
               DEFAULT 'LOG-' || lpad(nextval('audit_log_id_seq')::text, 6, '0'),
@@ -415,8 +429,8 @@ CREATE TABLE audit_logs (
   action      VARCHAR(64) NOT NULL,
   entity_type VARCHAR(64) NOT NULL,
   entity_id   VARCHAR(64) NOT NULL,
-  before      JSONB,
-  after       JSONB,
+  before      JSONB,                             -- 000003 memecah kolom metadata
+  after       JSONB,                             -- menjadi before/after terpisah
   request_id  UUID        NOT NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -426,10 +440,15 @@ CREATE INDEX idx_audit_logs_created_at  ON audit_logs(created_at);
 
 Penjelasan tiap keputusan index ada di [ARCHITECTURE.md](ARCHITECTURE.md#skema-database). Ringkasnya:
 
-- Index pada `disbursements` bersifat **partial** (`WHERE deleted_at IS NULL`) karena soft delete membuat baris mati menumpuk permanen.
+- Seluruh index pada `disbursements` bersifat **partial** (`WHERE deleted_at IS NULL`), termasuk yang GIN, karena soft delete membuat baris mati menumpuk permanen.
 - `recipient_name` memakai **GIN trigram**, karena `ILIKE '%term%'` tidak bisa memakai btree.
+- `amount` ter-index karena ia satu dari dua kolom yang boleh dipakai `sort_by`; tanpa index, `ORDER BY amount` menyortir seluruh baris hidup di setiap request.
 - `amount` bertipe `BIGINT` — nilai uang selalu integer, tidak pernah float.
 - Idempotency key unik **per user**, bukan global.
+- `created_by` dan `approved_by` adalah foreign key `UUID` ke `users`, bukan string username, sehingga atribusi tetap benar meski username berubah. `GET /audit-logs` mengembalikan `actor` sebagai UUID dengan alasan yang sama.
+- `response_body` disimpan `BYTEA`, bukan `JSONB`: replay wajib mengembalikan byte yang persis sama, sedangkan `JSONB` menormalisasi urutan key dan whitespace.
+- `expires_at` sengaja tidak di-index, baik di `refresh_tokens` maupun `idempotency_keys`. Tidak ada query yang memindai kolom itu — baris idempotency kedaluwarsa ditimpa lewat `ON CONFLICT ... WHERE expires_at < now()` yang tetap masuk lewat unique index `(user_id, idempotency_key)`. Index tanpa pembaca hanya menambah biaya tulis. Kalau nanti ada job pembersih berkala, index itu baru dibutuhkan.
+- Status `FAILED` ada di enum tapi belum dipakai jalur manapun; ia disiapkan untuk kegagalan dari payment rail, yang di luar scope test ini.
 
 ---
 
@@ -482,7 +501,7 @@ Cakupan:
 ```bash
 docker-compose up -d postgres migrate
 
-DB_HOST=localhost DB_PORT=5432 DB_USER=postgres DB_PASSWORD=postgres DB_NAME=disbursement DB_SSLMODE=disable \
+DB_HOST=localhost DB_PORT=5434 DB_USER=postgres DB_PASSWORD=postgres DB_NAME=disbursement DB_SSLMODE=disable \
   go test ./internal/repository/disbursement/... -run TestUpdateStatusConcurrentApprovalIsRace -v
 ```
 
@@ -546,4 +565,8 @@ Hal-hal berikut adalah pilihan sadar untuk scope test ini, bukan kelalaian. Alas
 | Audit lewat buffered channel | Transactional outbox — event tidak hilang meski proses crash |
 | ID sekuensial `DSB-000001` | ULID berprefix — menghilangkan kebocoran volume transaksi dan enumerabilitas |
 | Access token tidak bisa dicabut sebelum kedaluwarsa | Blacklist `jti`, bila revocation instan memang dibutuhkan |
-| Baris idempotency kedaluwarsa dibersihkan lewat job berkala | Partisi berdasarkan waktu bila volumenya tumbuh besar |
+| Baris kedaluwarsa di `idempotency_keys` dan `refresh_tokens` tidak pernah dihapus | Job pembersih berkala, lalu partisi per waktu bila volumenya tumbuh besar |
+
+Soal retensi: kedua tabel itu tumbuh monoton. `TryReserve` menimpa baris kedaluwarsa hanya untuk key yang sama, sedangkan `Idempotency-Key` adalah UUID sekali pakai — jadi mayoritas baris tidak pernah tersentuh lagi. Baris `refresh_tokens` yang sudah di-revoke atau kedaluwarsa juga tetap tinggal. Kedua kolom `expires_at` sengaja belum di-index, karena tidak ada satu pun query yang memakainya sebagai predikat pencari baris; index-nya baru berguna bersamaan dengan job pembersih yang memang belum ada.
+
+Fitur bonus `POST /disbursements/batch` sengaja tidak diimplementasikan. Endpoint batch menambah pertanyaan desain yang tidak sepele — semantik partial success, dan bagaimana satu `Idempotency-Key` diperlakukan terhadap sekumpulan item (satu kunci untuk seluruh batch, atau satu kunci per item) — sementara bonus lain yang dikerjakan (rate limiting, health check, Docker, Swagger) menyentuh jalur yang memang dinilai. Waktu dialokasikan ke sana.
