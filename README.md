@@ -36,7 +36,9 @@ docker compose up --build
 
 Compose menjalankan PostgreSQL, menunggu healthcheck-nya lolos, menjalankan migration, menjalankan seed, lalu menyalakan API. Tidak ada langkah manual di antaranya.
 
-API tersedia di `http://localhost:8080`, Swagger UI di `http://localhost:8080/swagger/index.html`.
+API tersedia di `http://localhost:8080`, Swagger UI di `http://localhost:8080/swagger/index.html`. Klik "Authorize" dan masukkan `Bearer <access_token>` untuk mencoba endpoint yang butuh autentikasi langsung dari UI.
+
+File di `docs/` (`docs.go`, `swagger.json`, `swagger.yaml`) hasil generate dari anotasi swaggo di handler — jangan diedit manual. Setelah mengubah anotasi atau menambah endpoint, jalankan `make swagger` lalu commit ulang `docs/`.
 
 ### Lokal
 
@@ -470,6 +472,19 @@ Cakupan:
 - **RBAC** — matriks role terhadap setiap aksi
 - **Idempotency handler** — key baru, replay, in-flight, body berbeda dengan key sama, key kedaluwarsa, kegagalan service di tengah, serta key milik user lain
 - **Token** — access token kedaluwarsa, signature salah, refresh setelah logout, refresh token yang di-reuse setelah rotasi
+
+### Test integrasi: race condition pada approval
+
+`internal/repository/disbursement_repository_integration_test.go` menjalankan dua `UpdateStatus` bersamaan (APPROVED vs REJECTED) ke row `PENDING` yang sama lewat repository asli, bukan fake — membuktikan `SELECT ... FOR UPDATE` benar-benar menyerialkan kedua transaksi. Butuh Postgres asli, jadi di-skip otomatis kalau `DB_HOST` tidak di-set:
+
+```bash
+docker-compose up -d postgres migrate
+
+DB_HOST=localhost DB_PORT=5432 DB_USER=postgres DB_PASSWORD=postgres DB_NAME=disbursement DB_SSLMODE=disable \
+  go test ./internal/repository/... -run TestUpdateStatusConcurrentApprovalIsRace -v
+```
+
+Hasil yang diharapkan: tepat satu goroutine sukses, satu lagi `ErrConflict`, dan status akhir baris tidak pernah PENDING atau tercampur.
 
 ---
 
