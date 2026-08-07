@@ -39,6 +39,11 @@ func filterByAuditDateTo(db *gorm.DB, to *time.Time) *gorm.DB {
 // auditOrderClause re-validates sort_by/sort_order against the whitelist as a
 // second line of defense — ORDER BY column/direction can't be bind
 // parameters in SQL, so this repo must never trust a caller-supplied value.
+//
+// id breaks ties on created_at for the same reason as in the disbursement
+// repository: audit rows are written by a pool of workers, so several can land
+// on the same timestamp, and without a unique tie-breaker paginated reads can
+// repeat or skip them.
 func auditOrderClause(sortBy, sortOrder string) string {
 	if !domain.AllowedAuditSortFields[sortBy] {
 		sortBy = "created_at"
@@ -46,5 +51,5 @@ func auditOrderClause(sortBy, sortOrder string) string {
 	if sortOrder != "asc" && sortOrder != "desc" {
 		sortOrder = "desc"
 	}
-	return sortBy + " " + sortOrder
+	return sortBy + " " + sortOrder + ", id " + sortOrder
 }

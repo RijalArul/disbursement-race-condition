@@ -39,6 +39,13 @@ func filterByDateTo(db *gorm.DB, to *time.Time) *gorm.DB {
 // orderClause re-validates sort_by/sort_order against the whitelist as a
 // second line of defense — ORDER BY column/direction can't be bind
 // parameters in SQL, so this repo must never trust a caller-supplied value.
+//
+// id is appended as a tie-breaker because none of the sortable columns is
+// unique. Rows sharing an amount, a status, or a created_at have no defined
+// order without it, and Postgres is free to return them differently per query
+// — which makes LIMIT/OFFSET pagination repeat a row on one page and drop it
+// from the next. id is the primary key and monotonic with insertion, so it
+// settles ties deterministically.
 func orderClause(sortBy, sortOrder string) string {
 	if !domain.AllowedSortFields[sortBy] {
 		sortBy = "created_at"
@@ -46,5 +53,5 @@ func orderClause(sortBy, sortOrder string) string {
 	if sortOrder != "asc" && sortOrder != "desc" {
 		sortOrder = "desc"
 	}
-	return sortBy + " " + sortOrder
+	return sortBy + " " + sortOrder + ", id " + sortOrder
 }
