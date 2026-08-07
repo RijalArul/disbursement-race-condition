@@ -1,4 +1,4 @@
-package repository
+package disbursement
 
 import (
 	"context"
@@ -112,11 +112,20 @@ func (r *disbursementRepository) UpdateStatus(ctx context.Context, id string, st
 
 		d.Status = status
 		d.ApprovedBy = &approvedBy
-		d.Note = note
 		d.UpdatedAt = time.Now()
 
+		// A nil note means the request body omitted the field, not that the
+		// caller asked to clear it. Writing it anyway would erase the note
+		// recorded at creation, so the column is left out of the UPDATE
+		// entirely in that case.
+		fields := []string{"Status", "ApprovedBy", "UpdatedAt"}
+		if note != nil {
+			d.Note = note
+			fields = append(fields, "Note")
+		}
+
 		if txErr := tx.Model(d).
-			Select("Status", "ApprovedBy", "Note", "UpdatedAt").
+			Select(fields).
 			Updates(d).Error; txErr != nil {
 			return txErr
 		}

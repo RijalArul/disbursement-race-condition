@@ -11,7 +11,7 @@ import (
 
 	auditconst "github.com/RijalArul/disbursement-race-condition/internal/constants/audit"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
-	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/common"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/worker"
 )
 
@@ -19,9 +19,9 @@ import (
 // can be notified exactly when Create runs — Enqueue hands off to a worker
 // goroutine, so assertions need a synchronization point rather than a sleep.
 type fakeAuditRepo struct {
-	mu       sync.Mutex
-	created  []*models.AuditLog
-	createFn func(*models.AuditLog)
+	mu        sync.Mutex
+	created   []*models.AuditLog
+	createFn  func(*models.AuditLog)
 	createErr error
 
 	listRows  []models.AuditLog
@@ -62,7 +62,7 @@ func TestServiceEnqueueRecordsAfterCommit(t *testing.T) {
 	wg.Add(1)
 	repo.createFn = func(*models.AuditLog) { wg.Done() }
 
-	ctx := middleware.WithRequestID(context.Background(), "req-123")
+	ctx := common.WithRequestID(context.Background(), "req-123")
 	svc.Enqueue(ctx, Event{
 		ActorID:  "user-1",
 		Action:   auditconst.ActionCreated,

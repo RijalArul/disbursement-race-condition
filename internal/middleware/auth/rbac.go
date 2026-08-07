@@ -1,4 +1,4 @@
-package middleware
+package auth
 
 import (
 	"net/http"
@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/common"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/response"
 )
 
@@ -19,7 +20,7 @@ func RequireRole(allowed ...domain.UserRole) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
-		role, _ := c.Get(ContextKeyRole)
+		role, _ := c.Get(common.ContextKeyRole)
 		roleStr, _ := role.(string)
 
 		if !allowedSet[domain.UserRole(roleStr)] {

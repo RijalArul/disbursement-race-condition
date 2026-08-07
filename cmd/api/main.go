@@ -18,18 +18,14 @@ import (
 
 	_ "github.com/RijalArul/disbursement-race-condition/docs"
 	"github.com/RijalArul/disbursement-race-condition/internal/config"
-	"github.com/RijalArul/disbursement-race-condition/internal/domain"
-	"github.com/RijalArul/disbursement-race-condition/internal/handler"
-	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
-	"github.com/RijalArul/disbursement-race-condition/internal/middleware/idempotency"
+	audithdl "github.com/RijalArul/disbursement-race-condition/internal/handler/audit"
+	authhdl "github.com/RijalArul/disbursement-race-condition/internal/handler/auth"
+	disbhdl "github.com/RijalArul/disbursement-race-condition/internal/handler/disbursement"
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/common"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/jwt"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/logger"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/response"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/worker"
-	"github.com/RijalArul/disbursement-race-condition/internal/repository"
-	auditsvc "github.com/RijalArul/disbursement-race-condition/internal/service/audit"
-	authsvc "github.com/RijalArul/disbursement-race-condition/internal/service/auth"
-	disbsvc "github.com/RijalArul/disbursement-race-condition/internal/service/disbursement"
 )
 
 // @title						Disbursement API
@@ -134,7 +130,7 @@ func newRouter(cfg *config.Config, db *gorm.DB, auditPool *worker.Pool) *gin.Eng
 	}
 
 	r := gin.New()
-	r.Use(middleware.RequestID(), middleware.Recovery(), middleware.AccessLog())
+	r.Use(common.RequestID(), common.Recovery(), common.AccessLog())
 
 	r.NoRoute(func(c *gin.Context) {
 		response.Err(c, http.StatusNotFound, "NOT_FOUND", "resource not found")
@@ -145,36 +141,15 @@ func newRouter(cfg *config.Config, db *gorm.DB, auditPool *worker.Pool) *gin.Eng
 	r.GET("/health", healthHandler)
 
 	issuer := jwt.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL)
-	userRepo := repository.NewUserRepository(db)
-	refreshTokenRepo := repository.NewRefreshTokenRepository(db)
-	authService := authsvc.NewService(userRepo, refreshTokenRepo, issuer, cfg.JWTRefreshTTL)
-	authHandler := handler.NewAuthHandler(authService)
 
-	auth := r.Group("/auth")
-	auth.POST("/login", authHandler.Login)
-	auth.POST("/refresh", authHandler.Refresh)
-	auth.POST("/logout", authHandler.Logout)
+	authHandler := authhdl.New(db, issuer, cfg.JWTRefreshTTL)
+	authhdl.RegisterRoutes(r, authHandler)
 
-	auditRepo := repository.NewAuditRepository(db)
-	auditService := auditsvc.NewService(auditRepo, auditPool)
-	auditHandler := handler.NewAuditHandler(auditService)
+	auditHandler, auditService := audithdl.New(db, auditPool)
+	audithdl.RegisterRoutes(r, auditHandler, issuer)
 
-	disbursementRepo := repository.NewDisbursementRepository(db)
-	disbursementService := disbsvc.NewService(disbursementRepo, auditService)
-	disbursementHandler := handler.NewDisbursementHandler(disbursementService)
-	idempotencyRepo := repository.NewIdempotencyRepository(db)
-
-	// Auth is mandatory here, not decorative: the service reads created_by from
-	// the identity this middleware puts on the request context.
-	disbursements := r.Group("/disbursements", middleware.Auth(issuer))
-	disbursements.POST("", idempotency.Middleware(idempotencyRepo), disbursementHandler.Create)
-	disbursements.GET("", disbursementHandler.List)
-	disbursements.GET("/:id", disbursementHandler.GetByID)
-	disbursements.PATCH("/:id/status", middleware.RequireRole(domain.RoleAdmin, domain.RoleSuperAdmin), disbursementHandler.UpdateStatus)
-	disbursements.DELETE("/:id", middleware.RequireRole(domain.RoleSuperAdmin), disbursementHandler.Delete)
-
-	auditLogs := r.Group("/audit-logs", middleware.Auth(issuer), middleware.RequireRole(domain.RoleSuperAdmin))
-	auditLogs.GET("", auditHandler.List)
+	disbursementHandler := disbhdl.New(db, auditService)
+	disbhdl.RegisterRoutes(r, disbursementHandler, db, issuer)
 
 	return r
 }

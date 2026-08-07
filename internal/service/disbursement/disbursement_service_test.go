@@ -9,7 +9,7 @@ import (
 	respconst "github.com/RijalArul/disbursement-race-condition/internal/constants/response"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
-	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/common"
 	auditsvc "github.com/RijalArul/disbursement-race-condition/internal/service/audit"
 )
 
@@ -95,7 +95,7 @@ func (f *fakeDisbursementRepo) SoftDelete(ctx context.Context, id string) (*mode
 const testUserID = "11111111-1111-1111-1111-111111111111"
 
 func authedCtx() context.Context {
-	return middleware.WithIdentity(context.Background(), testUserID, "operator01", string(domain.RoleOperator))
+	return common.WithIdentity(context.Background(), testUserID, "operator01", string(domain.RoleOperator))
 }
 
 func validInput() disbconst.CreateInput {
@@ -187,7 +187,7 @@ func TestDisbursementServiceCreatedByComesFromIdentity(t *testing.T) {
 	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	const otherUser = "22222222-2222-2222-2222-222222222222"
-	ctx := middleware.WithIdentity(context.Background(), otherUser, "operator02", string(domain.RoleOperator))
+	ctx := common.WithIdentity(context.Background(), otherUser, "operator02", string(domain.RoleOperator))
 
 	got, err := svc.Create(ctx, validInput())
 	if err != nil {
@@ -370,7 +370,7 @@ func TestDisbursementServiceUpdateStatusApprovedByFromIdentity(t *testing.T) {
 	svc := NewService(repo, &fakeAuditEnqueuer{})
 
 	const approver = "33333333-3333-3333-3333-333333333333"
-	ctx := middleware.WithIdentity(context.Background(), approver, "admin01", string(domain.RoleAdmin))
+	ctx := common.WithIdentity(context.Background(), approver, "admin01", string(domain.RoleAdmin))
 
 	_, err := svc.UpdateStatus(ctx, disbconst.UpdateStatusInput{ID: "DSB-000001", Status: "APPROVED"})
 	if err != nil {

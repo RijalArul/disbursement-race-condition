@@ -12,10 +12,10 @@ import (
 	respconst "github.com/RijalArul/disbursement-race-condition/internal/constants/response"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
-	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/common"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/logger"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/pagination"
-	"github.com/RijalArul/disbursement-race-condition/internal/repository"
+	"github.com/RijalArul/disbursement-race-condition/internal/repository/disbursement"
 	auditsvc "github.com/RijalArul/disbursement-race-condition/internal/service/audit"
 )
 
@@ -27,11 +27,11 @@ type AuditEnqueuer interface {
 }
 
 type Service struct {
-	disbursements repository.DisbursementRepository
+	disbursements disbursement.DisbursementRepository
 	audits        AuditEnqueuer
 }
 
-func NewService(disbursements repository.DisbursementRepository, audits AuditEnqueuer) *Service {
+func NewService(disbursements disbursement.DisbursementRepository, audits AuditEnqueuer) *Service {
 	return &Service{disbursements: disbursements, audits: audits}
 }
 
@@ -39,7 +39,7 @@ func NewService(disbursements repository.DisbursementRepository, audits AuditEnq
 func (s *Service) Create(ctx context.Context, in disbconst.CreateInput) (*models.Disbursement, error) {
 	log := logger.FromCtx(ctx)
 
-	identity, ok := middleware.IdentityFromCtx(ctx)
+	identity, ok := common.IdentityFromCtx(ctx)
 	if !ok || identity.UserID == "" {
 		// Route should sit behind Auth middleware; refuse rather than write an unattributed row.
 		log.Error("create disbursement reached service without an authenticated identity")
@@ -131,7 +131,7 @@ func (s *Service) UpdateStatus(ctx context.Context, in disbconst.UpdateStatusInp
 		return nil, err
 	}
 
-	identity, _ := middleware.IdentityFromCtx(ctx)
+	identity, _ := common.IdentityFromCtx(ctx)
 
 	before, after, err := s.disbursements.UpdateStatus(ctx, in.ID, domain.DisbursementStatus(in.Status), identity.UserID, in.Note)
 	if err != nil {
@@ -163,7 +163,7 @@ func (s *Service) UpdateStatus(ctx context.Context, in disbconst.UpdateStatusInp
 func (s *Service) Delete(ctx context.Context, id string) error {
 	log := logger.FromCtx(ctx)
 
-	identity, _ := middleware.IdentityFromCtx(ctx)
+	identity, _ := common.IdentityFromCtx(ctx)
 
 	before, err := s.disbursements.SoftDelete(ctx, id)
 	if err != nil {

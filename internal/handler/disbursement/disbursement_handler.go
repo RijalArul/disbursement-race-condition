@@ -1,4 +1,4 @@
-package handler
+package disbursement
 
 import (
 	"net/http"
@@ -12,12 +12,12 @@ import (
 	disbsvc "github.com/RijalArul/disbursement-race-condition/internal/service/disbursement"
 )
 
-type DisbursementHandler struct {
+type Handler struct {
 	disbursements *disbsvc.Service
 }
 
-func NewDisbursementHandler(disbursements *disbsvc.Service) *DisbursementHandler {
-	return &DisbursementHandler{disbursements: disbursements}
+func NewHandler(disbursements *disbsvc.Service) *Handler {
+	return &Handler{disbursements: disbursements}
 }
 
 // Create submits a new disbursement for approval. Safe to retry with an Idempotency-Key.
@@ -38,7 +38,7 @@ func NewDisbursementHandler(disbursements *disbsvc.Service) *DisbursementHandler
 //	@Failure	422					{object}	response.Envelope	"IDEMPOTENCY_KEY_REUSED: same key, different request body"
 //	@Failure	429					{object}	response.Envelope	"RATE_LIMITED"
 //	@Router		/disbursements [post]
-func (h *DisbursementHandler) Create(c *gin.Context) {
+func (h *Handler) Create(c *gin.Context) {
 	var req disbconst.CreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		// A bind failure here is a malformed body or a type mismatch — for
@@ -74,7 +74,7 @@ func (h *DisbursementHandler) Create(c *gin.Context) {
 //	@Failure	401	{object}	response.Envelope	"UNAUTHORIZED"
 //	@Failure	404	{object}	response.Envelope	"NOT_FOUND: unknown ID or soft-deleted"
 //	@Router		/disbursements/{id} [get]
-func (h *DisbursementHandler) GetByID(c *gin.Context) {
+func (h *Handler) GetByID(c *gin.Context) {
 	d, err := h.disbursements.GetByID(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		response.MapError(c, err)
@@ -103,7 +103,7 @@ func (h *DisbursementHandler) GetByID(c *gin.Context) {
 //	@Failure	404		{object}	response.Envelope	"NOT_FOUND: unknown ID or soft-deleted"
 //	@Failure	409		{object}	response.Envelope	"CONFLICT: disbursement is no longer PENDING"
 //	@Router		/disbursements/{id}/status [patch]
-func (h *DisbursementHandler) UpdateStatus(c *gin.Context) {
+func (h *Handler) UpdateStatus(c *gin.Context) {
 	var req disbconst.UpdateStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.MapError(c, domain.Invalid(disbconst.InvalidBody))
@@ -137,7 +137,7 @@ func (h *DisbursementHandler) UpdateStatus(c *gin.Context) {
 //	@Failure	404	{object}	response.Envelope	"NOT_FOUND: unknown ID or already soft-deleted"
 //	@Failure	409	{object}	response.Envelope	"CONFLICT: disbursement is no longer PENDING"
 //	@Router		/disbursements/{id} [delete]
-func (h *DisbursementHandler) Delete(c *gin.Context) {
+func (h *Handler) Delete(c *gin.Context) {
 	if err := h.disbursements.Delete(c.Request.Context(), c.Param("id")); err != nil {
 		response.MapError(c, err)
 		return
@@ -165,7 +165,7 @@ func (h *DisbursementHandler) Delete(c *gin.Context) {
 //	@Failure	400			{object}	response.Envelope	"VALIDATION_ERROR: sort_by/sort_order not in whitelist, or invalid date"
 //	@Failure	401			{object}	response.Envelope	"UNAUTHORIZED"
 //	@Router		/disbursements [get]
-func (h *DisbursementHandler) List(c *gin.Context) {
+func (h *Handler) List(c *gin.Context) {
 	req := disbconst.ListRequest{
 		Page:      c.Query("page"),
 		Limit:     c.Query("limit"),

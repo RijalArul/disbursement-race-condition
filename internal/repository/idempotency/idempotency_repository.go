@@ -1,7 +1,8 @@
-package repository
+package idempotency
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -68,7 +69,7 @@ func (r *idempotencyRepository) Find(ctx context.Context, userID, key string) (*
 		Where("user_id = ? AND idempotency_key = ?", userID, key).
 		First(&row).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.NotFound("idempotency key not found")
 		}
 		return nil, err

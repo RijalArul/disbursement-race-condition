@@ -9,19 +9,19 @@ import (
 	auditconst "github.com/RijalArul/disbursement-race-condition/internal/constants/audit"
 	respconst "github.com/RijalArul/disbursement-race-condition/internal/constants/response"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
-	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/common"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/logger"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/pagination"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/worker"
-	"github.com/RijalArul/disbursement-race-condition/internal/repository"
+	"github.com/RijalArul/disbursement-race-condition/internal/repository/audit"
 )
 
 type Service struct {
-	audits repository.AuditRepository
+	audits audit.AuditRepository
 	pool   *worker.Pool
 }
 
-func NewService(audits repository.AuditRepository, pool *worker.Pool) *Service {
+func NewService(audits audit.AuditRepository, pool *worker.Pool) *Service {
 	return &Service{audits: audits, pool: pool}
 }
 
@@ -43,7 +43,7 @@ func (s *Service) Enqueue(ctx context.Context, ev Event) {
 	// and the logger both travel with this detached ctx, since it carries the
 	// same request-scoped values the request context had.
 	detached := context.WithoutCancel(ctx)
-	requestID := middleware.RequestIDFromCtx(ctx)
+	requestID := common.RequestIDFromCtx(ctx)
 	log := logger.FromCtx(detached)
 
 	s.pool.Enqueue(func() {

@@ -10,7 +10,7 @@ import (
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/response"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/validate"
-	"github.com/RijalArul/disbursement-race-condition/internal/repository"
+	idemrepo "github.com/RijalArul/disbursement-race-condition/internal/repository/idempotency"
 )
 
 const keyHeader = "Idempotency-Key"
@@ -55,7 +55,7 @@ func prepareRequest(c *gin.Context, key string) (reservation, error) {
 
 // Middleware makes the guarded route safe to retry: a repeated request with the same
 // Idempotency-Key and body within 24h replays the first response instead of running twice.
-func Middleware(repo repository.IdempotencyRepository) gin.HandlerFunc {
+func Middleware(repo idemrepo.IdempotencyRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.GetHeader(keyHeader)
 		if key == "" {
@@ -74,7 +74,7 @@ func Middleware(repo repository.IdempotencyRepository) gin.HandlerFunc {
 }
 
 // runReserved claims the key and either runs the handler (first request) or replays the stored response.
-func runReserved(c *gin.Context, repo repository.IdempotencyRepository, res reservation) {
+func runReserved(c *gin.Context, repo idemrepo.IdempotencyRepository, res reservation) {
 	ctx := c.Request.Context()
 
 	reserved, err := repo.TryReserve(ctx, res.userID, res.key, res.requestHash)
@@ -93,7 +93,7 @@ func runReserved(c *gin.Context, repo repository.IdempotencyRepository, res rese
 
 // runAndStore executes the handler once, then persists its response for replay, or deletes
 // the reservation on failure so the client can retry with the same key.
-func runAndStore(c *gin.Context, repo repository.IdempotencyRepository, res reservation) {
+func runAndStore(c *gin.Context, repo idemrepo.IdempotencyRepository, res reservation) {
 	ctx := c.Request.Context()
 
 	capture := &bodyCapture{ResponseWriter: c.Writer, buf: &bytes.Buffer{}}
@@ -113,7 +113,7 @@ func runAndStore(c *gin.Context, repo repository.IdempotencyRepository, res rese
 }
 
 // replayExisting decides the response for a key already reserved by an earlier request.
-func replayExisting(c *gin.Context, repo repository.IdempotencyRepository, res reservation) {
+func replayExisting(c *gin.Context, repo idemrepo.IdempotencyRepository, res reservation) {
 	row, err := repo.Find(c.Request.Context(), res.userID, res.key)
 	if err != nil {
 		response.MapError(c, err)

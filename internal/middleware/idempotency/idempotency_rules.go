@@ -9,7 +9,7 @@ import (
 
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
-	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/common"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/hash"
 )
 
@@ -47,7 +47,7 @@ func validateReplay(row *models.IdempotencyKey, requestHash string) error {
 
 // requireIdentity resolves the caller Auth middleware attached to ctx.
 func requireIdentity(c *gin.Context) (string, error) {
-	identity, ok := middleware.IdentityFromCtx(c.Request.Context())
+	identity, ok := common.IdentityFromCtx(c.Request.Context())
 	if !ok {
 		return "", domain.Unauthorized("authentication required")
 	}

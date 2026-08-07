@@ -1,4 +1,4 @@
-package middleware
+package auth
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/common"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/jwt"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/response"
 )
@@ -37,11 +38,11 @@ func Auth(issuer *jwt.Issuer) gin.HandlerFunc {
 			return
 		}
 
-		ctx := WithIdentity(c.Request.Context(), claims.UserID, claims.Username, string(claims.Role))
+		ctx := common.WithIdentity(c.Request.Context(), claims.UserID, claims.Username, string(claims.Role))
 		c.Request = c.Request.WithContext(ctx)
-		c.Set(ContextKeyUserID, claims.UserID)
-		c.Set(ContextKeyUsername, claims.Username)
-		c.Set(ContextKeyRole, string(claims.Role))
+		c.Set(common.ContextKeyUserID, claims.UserID)
+		c.Set(common.ContextKeyUsername, claims.Username)
+		c.Set(common.ContextKeyRole, string(claims.Role))
 
 		c.Next()
 	}

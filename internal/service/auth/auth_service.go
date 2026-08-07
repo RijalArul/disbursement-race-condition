@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -12,17 +13,17 @@ import (
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/hash"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/jwt"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/logger"
-	"github.com/RijalArul/disbursement-race-condition/internal/repository"
+	"github.com/RijalArul/disbursement-race-condition/internal/repository/auth"
 )
 
 type Service struct {
-	users         repository.UserRepository
-	refreshTokens repository.RefreshTokenRepository
+	users         auth.UserRepository
+	refreshTokens auth.RefreshTokenRepository
 	issuer        *jwt.Issuer
 	refreshTTL    time.Duration
 }
 
-func NewService(users repository.UserRepository, refreshTokens repository.RefreshTokenRepository, issuer *jwt.Issuer, refreshTTL time.Duration) *Service {
+func NewService(users auth.UserRepository, refreshTokens auth.RefreshTokenRepository, issuer *jwt.Issuer, refreshTTL time.Duration) *Service {
 	return &Service{users: users, refreshTokens: refreshTokens, issuer: issuer, refreshTTL: refreshTTL}
 }
 
@@ -34,7 +35,7 @@ func (s *Service) Login(ctx context.Context, username, password string) (*authco
 
 	user, err := s.users.FindByUsername(ctx, username)
 	if err != nil {
-		if err == domain.ErrNotFound {
+		if errors.Is(err, domain.ErrNotFound) {
 			log.Warn("login failed", slog.String("reason", "user_not_found"))
 			return nil, domain.Unauthorized(authconst.InvalidCredentials)
 		}
@@ -59,7 +60,7 @@ func (s *Service) Refresh(ctx context.Context, rawToken string) (*authconst.Toke
 
 	stored, err := s.refreshTokens.FindByHash(ctx, tokenHash)
 	if err != nil {
-		if err == domain.ErrNotFound {
+		if errors.Is(err, domain.ErrNotFound) {
 			return nil, domain.Unauthorized(authconst.InvalidRefreshToken)
 		}
 		return nil, fmt.Errorf("refresh lookup token: %w", err)
@@ -97,7 +98,7 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 
 	stored, err := s.refreshTokens.FindByHash(ctx, tokenHash)
 	if err != nil {
-		if err == domain.ErrNotFound {
+		if errors.Is(err, domain.ErrNotFound) {
 			return nil
 		}
 		return fmt.Errorf("logout lookup token: %w", err)

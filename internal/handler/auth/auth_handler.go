@@ -1,4 +1,4 @@
-package handler
+package auth
 
 import (
 	"net/http"
@@ -11,12 +11,12 @@ import (
 	authsvc "github.com/RijalArul/disbursement-race-condition/internal/service/auth"
 )
 
-type AuthHandler struct {
+type Handler struct {
 	auth *authsvc.Service
 }
 
-func NewAuthHandler(auth *authsvc.Service) *AuthHandler {
-	return &AuthHandler{auth: auth}
+func NewHandler(auth *authsvc.Service) *Handler {
+	return &Handler{auth: auth}
 }
 
 // Login authenticates a user and issues an access/refresh token pair.
@@ -31,7 +31,7 @@ func NewAuthHandler(auth *authsvc.Service) *AuthHandler {
 //	@Failure	400		{object}	response.Envelope	"VALIDATION_ERROR: malformed body"
 //	@Failure	401		{object}	response.Envelope	"UNAUTHORIZED: invalid username or password"
 //	@Router		/auth/login [post]
-func (h *AuthHandler) Login(c *gin.Context) {
+func (h *Handler) Login(c *gin.Context) {
 	var req authconst.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.MapError(c, domain.Invalid("invalid request body"))
@@ -59,7 +59,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 //	@Failure	400		{object}	response.Envelope	"VALIDATION_ERROR: malformed body"
 //	@Failure	401		{object}	response.Envelope	"UNAUTHORIZED: token invalid, expired, revoked, or reused after rotation"
 //	@Router		/auth/refresh [post]
-func (h *AuthHandler) Refresh(c *gin.Context) {
+func (h *Handler) Refresh(c *gin.Context) {
 	var req authconst.RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.MapError(c, domain.Invalid("invalid request body"))
@@ -86,7 +86,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 //	@Header		200		{string}	X-Request-ID	"Request correlation ID; echoed from the request header or generated if absent"
 //	@Failure	400		{object}	response.Envelope	"VALIDATION_ERROR: malformed body"
 //	@Router		/auth/logout [post]
-func (h *AuthHandler) Logout(c *gin.Context) {
+func (h *Handler) Logout(c *gin.Context) {
 	var req authconst.RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.MapError(c, domain.Invalid("invalid request body"))

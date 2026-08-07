@@ -14,7 +14,7 @@ import (
 
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
-	"github.com/RijalArul/disbursement-race-condition/internal/middleware"
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/common"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/hash"
 )
 
@@ -83,7 +83,7 @@ const testUserID = "11111111-1111-1111-1111-111111111111"
 func setupRouter(repo *fakeRepo, handler gin.HandlerFunc) *gin.Engine {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		ctx := middleware.WithIdentity(c.Request.Context(), testUserID, "operator01", string(domain.RoleOperator))
+		ctx := common.WithIdentity(c.Request.Context(), testUserID, "operator01", string(domain.RoleOperator))
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	})
@@ -242,7 +242,7 @@ const otherUserID = "22222222-2222-2222-2222-222222222222"
 func setupRouterForUser(repo *fakeRepo, userID string, handler gin.HandlerFunc) *gin.Engine {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		ctx := middleware.WithIdentity(c.Request.Context(), userID, "operator01", string(domain.RoleOperator))
+		ctx := common.WithIdentity(c.Request.Context(), userID, "operator01", string(domain.RoleOperator))
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	})

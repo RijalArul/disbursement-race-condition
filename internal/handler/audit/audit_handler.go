@@ -1,4 +1,4 @@
-package handler
+package audit
 
 import (
 	"context"
@@ -15,12 +15,12 @@ import (
 	auditsvc "github.com/RijalArul/disbursement-race-condition/internal/service/audit"
 )
 
-type AuditHandler struct {
+type Handler struct {
 	audits *auditsvc.Service
 }
 
-func NewAuditHandler(audits *auditsvc.Service) *AuditHandler {
-	return &AuditHandler{audits: audits}
+func NewHandler(audits *auditsvc.Service) *Handler {
+	return &Handler{audits: audits}
 }
 
 // List returns audit log entries with filtering, sorting, and pagination. Requires superadmin.
@@ -43,7 +43,7 @@ func NewAuditHandler(audits *auditsvc.Service) *AuditHandler {
 //	@Failure	401			{object}	response.Envelope	"UNAUTHORIZED"
 //	@Failure	403			{object}	response.Envelope	"FORBIDDEN: caller is not superadmin"
 //	@Router		/audit-logs [get]
-func (h *AuditHandler) List(c *gin.Context) {
+func (h *Handler) List(c *gin.Context) {
 	req := auditconst.ListRequest{
 		Page:      c.Query("page"),
 		Limit:     c.Query("limit"),

@@ -475,13 +475,13 @@ Cakupan:
 
 ### Test integrasi: race condition pada approval
 
-`internal/repository/disbursement_repository_integration_test.go` menjalankan dua `UpdateStatus` bersamaan (APPROVED vs REJECTED) ke row `PENDING` yang sama lewat repository asli, bukan fake — membuktikan `SELECT ... FOR UPDATE` benar-benar menyerialkan kedua transaksi. Butuh Postgres asli, jadi di-skip otomatis kalau `DB_HOST` tidak di-set:
+`internal/repository/disbursement/disbursement_repository_integration_test.go` menjalankan dua `UpdateStatus` bersamaan (APPROVED vs REJECTED) ke row `PENDING` yang sama lewat repository asli, bukan fake — membuktikan `SELECT ... FOR UPDATE` benar-benar menyerialkan kedua transaksi. Butuh Postgres asli, jadi di-skip otomatis kalau `DB_HOST` tidak di-set:
 
 ```bash
 docker-compose up -d postgres migrate
 
 DB_HOST=localhost DB_PORT=5432 DB_USER=postgres DB_PASSWORD=postgres DB_NAME=disbursement DB_SSLMODE=disable \
-  go test ./internal/repository/... -run TestUpdateStatusConcurrentApprovalIsRace -v
+  go test ./internal/repository/disbursement/... -run TestUpdateStatusConcurrentApprovalIsRace -v
 ```
 
 Hasil yang diharapkan: tepat satu goroutine sukses, satu lagi `ErrConflict`, dan status akhir baris tidak pernah PENDING atau tercampur.
