@@ -87,6 +87,8 @@ Seluruh konfigurasi lewat environment variable. Aplikasi gagal saat boot dengan 
 | `AUDIT_BUFFER_SIZE` | `1024` | |
 | `RATE_LIMIT_CREATE` | `30` | per menit per user |
 | `RATE_LIMIT_DEFAULT` | `120` | per menit per user |
+| `RATE_LIMIT_LOGIN_IP` | `10` | per menit per IP, khusus `POST /auth/login` |
+| `RATE_LIMIT_LOGIN_USERNAME` | `5` | per menit per username, khusus `POST /auth/login` |
 | `LOG_LEVEL` | `info` | |
 
 ---
@@ -540,6 +542,7 @@ Hal-hal berikut adalah pilihan sadar untuk scope test ini, bukan kelalaian. Alas
 |---|---|
 | Refresh token di PostgreSQL | Redis — TTL native menghapus kebutuhan cleanup, dan bebannya lepas dari database bisnis |
 | Rate limiting in-memory per instance | Redis — batas in-memory tidak akurat begitu aplikasi di-scale horizontal |
+| `POST /auth/login` dibatasi IP+username, bukan user_id | Endpoint ini pre-auth — belum ada JWT untuk dijadikan kunci. IP saja gampang dilewati (ganti IP/proxy pool); username saja bisa disalahgunakan buat lock-out akun orang lain. Kombinasi keduanya menahan brute-force satu IP maupun credential stuffing terdistribusi ke satu akun |
 | Audit lewat buffered channel | Transactional outbox — event tidak hilang meski proses crash |
 | ID sekuensial `DSB-000001` | ULID berprefix — menghilangkan kebocoran volume transaksi dan enumerabilitas |
 | Access token tidak bisa dicabut sebelum kedaluwarsa | Blacklist `jti`, bila revocation instan memang dibutuhkan |

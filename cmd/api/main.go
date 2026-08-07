@@ -143,13 +143,13 @@ func newRouter(cfg *config.Config, db *gorm.DB, auditPool *worker.Pool) *gin.Eng
 	issuer := jwt.NewIssuer(cfg.JWTSecret, cfg.JWTAccessTTL)
 
 	authHandler := authhdl.New(db, issuer, cfg.JWTRefreshTTL)
-	authhdl.RegisterRoutes(r, authHandler)
+	authhdl.RegisterRoutes(r, authHandler, cfg.RateLimitLoginIP, cfg.RateLimitLoginUsername)
 
 	auditHandler, auditService := audithdl.New(db, auditPool)
-	audithdl.RegisterRoutes(r, auditHandler, issuer)
+	audithdl.RegisterRoutes(r, auditHandler, issuer, cfg.RateLimitDefault)
 
 	disbursementHandler := disbhdl.New(db, auditService)
-	disbhdl.RegisterRoutes(r, disbursementHandler, db, issuer)
+	disbhdl.RegisterRoutes(r, disbursementHandler, db, issuer, cfg.RateLimitCreate, cfg.RateLimitDefault)
 
 	return r
 }

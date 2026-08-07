@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/ratelimit"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/jwt"
 	authrepo "github.com/RijalArul/disbursement-race-condition/internal/repository/auth"
 	authsvc "github.com/RijalArul/disbursement-race-condition/internal/service/auth"
@@ -20,9 +21,11 @@ func New(db *gorm.DB, issuer *jwt.Issuer, refreshTTL time.Duration) *Handler {
 }
 
 // RegisterRoutes attaches POST /auth/login, /auth/refresh, /auth/logout.
-func RegisterRoutes(r *gin.Engine, h *Handler) {
+// login is rate-limited by IP+username, not user_id, since the caller has no
+// JWT yet at this point.
+func RegisterRoutes(r *gin.Engine, h *Handler, loginIPLimit, loginUsernameLimit int) {
 	group := r.Group("/auth")
-	group.POST("/login", h.Login)
+	group.POST("/login", ratelimit.PerLoginAttempt(loginIPLimit, loginUsernameLimit, time.Minute), h.Login)
 	group.POST("/refresh", h.Refresh)
 	group.POST("/logout", h.Logout)
 }

@@ -1,11 +1,14 @@
 package audit
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	authmw "github.com/RijalArul/disbursement-race-condition/internal/middleware/auth"
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/ratelimit"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/jwt"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/worker"
 	auditrepo "github.com/RijalArul/disbursement-race-condition/internal/repository/audit"
@@ -22,7 +25,8 @@ func New(db *gorm.DB, pool *worker.Pool) (*Handler, *auditsvc.Service) {
 }
 
 // RegisterRoutes attaches GET /audit-logs, restricted to superadmin.
-func RegisterRoutes(r *gin.Engine, h *Handler, issuer *jwt.Issuer) {
-	auditLogs := r.Group("/audit-logs", authmw.Auth(issuer), authmw.RequireRole(domain.RoleSuperAdmin))
+// Rate limit is per-user (JWT user_id), per BONUS-02.
+func RegisterRoutes(r *gin.Engine, h *Handler, issuer *jwt.Issuer, defaultLimit int) {
+	auditLogs := r.Group("/audit-logs", authmw.Auth(issuer), authmw.RequireRole(domain.RoleSuperAdmin), ratelimit.PerUser(defaultLimit, time.Minute))
 	auditLogs.GET("", h.List)
 }

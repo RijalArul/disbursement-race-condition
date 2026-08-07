@@ -1,12 +1,15 @@
 package disbursement
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	authmw "github.com/RijalArul/disbursement-race-condition/internal/middleware/auth"
 	"github.com/RijalArul/disbursement-race-condition/internal/middleware/idempotency"
+	"github.com/RijalArul/disbursement-race-condition/internal/middleware/ratelimit"
 	"github.com/RijalArul/disbursement-race-condition/internal/pkg/jwt"
 	disbrepo "github.com/RijalArul/disbursement-race-condition/internal/repository/disbursement"
 	idemrepo "github.com/RijalArul/disbursement-race-condition/internal/repository/idempotency"
@@ -24,16 +27,21 @@ func New(db *gorm.DB, audits disbsvc.AuditEnqueuer) *Handler {
 
 // RegisterRoutes attaches the /disbursements routes. The Idempotency-Key
 // middleware and its repository are constructed here since POST /disbursements
-// is their only consumer.
-func RegisterRoutes(r *gin.Engine, h *Handler, db *gorm.DB, issuer *jwt.Issuer) {
+// is their only consumer. Rate limits are per-user (JWT user_id), not IP,
+// per BONUS-02: createLimit applies to POST, defaultLimit to the rest.
+func RegisterRoutes(r *gin.Engine, h *Handler, db *gorm.DB, issuer *jwt.Issuer, createLimit, defaultLimit int) {
 	idempotencyRepo := idemrepo.NewIdempotencyRepository(db)
+
+	// One shared default-limit middleware instance so GET/PATCH/DELETE draw
+	// from the same per-user bucket instead of each getting its own quota.
+	defaultLimiter := ratelimit.PerUser(defaultLimit, time.Minute)
 
 	// Auth is mandatory here, not decorative: the service reads created_by from
 	// the identity this middleware puts on the request context.
 	group := r.Group("/disbursements", authmw.Auth(issuer))
-	group.POST("", idempotency.Middleware(idempotencyRepo), h.Create)
-	group.GET("", h.List)
-	group.GET("/:id", h.GetByID)
-	group.PATCH("/:id/status", authmw.RequireRole(domain.RoleAdmin, domain.RoleSuperAdmin), h.UpdateStatus)
-	group.DELETE("/:id", authmw.RequireRole(domain.RoleSuperAdmin), h.Delete)
+	group.POST("", ratelimit.PerUser(createLimit, time.Minute), idempotency.Middleware(idempotencyRepo), h.Create)
+	group.GET("", defaultLimiter, h.List)
+	group.GET("/:id", defaultLimiter, h.GetByID)
+	group.PATCH("/:id/status", defaultLimiter, authmw.RequireRole(domain.RoleAdmin, domain.RoleSuperAdmin), h.UpdateStatus)
+	group.DELETE("/:id", defaultLimiter, authmw.RequireRole(domain.RoleSuperAdmin), h.Delete)
 }

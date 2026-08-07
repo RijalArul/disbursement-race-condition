@@ -30,8 +30,10 @@ type Config struct {
 	AuditWorkerCount int
 	AuditBufferSize  int
 
-	RateLimitCreate  int
-	RateLimitDefault int
+	RateLimitCreate        int
+	RateLimitDefault       int
+	RateLimitLoginIP       int
+	RateLimitLoginUsername int
 
 	LogLevel string
 }
@@ -97,6 +99,12 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if cfg.RateLimitDefault, err = getEnvInt("RATE_LIMIT_DEFAULT", 120); err != nil {
+		return nil, err
+	}
+	if cfg.RateLimitLoginIP, err = getEnvInt("RATE_LIMIT_LOGIN_IP", 10); err != nil {
+		return nil, err
+	}
+	if cfg.RateLimitLoginUsername, err = getEnvInt("RATE_LIMIT_LOGIN_USERNAME", 5); err != nil {
 		return nil, err
 	}
 
