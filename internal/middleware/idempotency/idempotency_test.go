@@ -237,6 +237,75 @@ func TestIdempotencyBodyMismatchWinsOverBusy(t *testing.T) {
 	}
 }
 
+const otherUserID = "22222222-2222-2222-2222-222222222222"
+
+func setupRouterForUser(repo *fakeRepo, userID string, handler gin.HandlerFunc) *gin.Engine {
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		ctx := middleware.WithIdentity(c.Request.Context(), userID, "operator01", string(domain.RoleOperator))
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	})
+	r.POST("/disbursements", Middleware(repo), handler)
+	return r
+}
+
+func failingHandler(c *gin.Context) {
+	c.JSON(http.StatusInternalServerError, gin.H{"success": false})
+}
+
+func TestIdempotencyServiceFailureDeletesReservationAllowingRetry(t *testing.T) {
+	repo := newFakeRepo()
+	key := uuid.NewString()
+	body := `{"amount":1000}`
+
+	failingRouter := setupRouter(repo, failingHandler)
+	first := doPost(failingRouter, key, body)
+
+	if first.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 from failing handler, got %d (body: %s)", first.Code, first.Body.String())
+	}
+	if _, exists := repo.rows[rowKey(testUserID, key)]; exists {
+		t.Fatal("expected reservation to be deleted after a 500 response")
+	}
+
+	retryRouter := setupRouter(repo, createdHandler)
+	second := doPost(retryRouter, key, body)
+
+	if second.Code != http.StatusCreated {
+		t.Fatalf("expected retry with same key to be treated as fresh (201), got %d (body: %s)", second.Code, second.Body.String())
+	}
+}
+
+func TestIdempotencyKeyScopedPerUser(t *testing.T) {
+	repo := newFakeRepo()
+	key := uuid.NewString()
+	body := `{"amount":1000}`
+
+	firstRouter := setupRouterForUser(repo, testUserID, createdHandler)
+	first := doPost(firstRouter, key, body)
+
+	secondRouter := setupRouterForUser(repo, otherUserID, createdHandler)
+	second := doPost(secondRouter, key, body)
+
+	if first.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for first user, got %d (body: %s)", first.Code, first.Body.String())
+	}
+	if second.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for second user (key scoped per user), got %d (body: %s)", second.Code, second.Body.String())
+	}
+
+	if _, exists := repo.rows[rowKey(testUserID, key)]; !exists {
+		t.Error("expected a row scoped to testUserID")
+	}
+	if _, exists := repo.rows[rowKey(otherUserID, key)]; !exists {
+		t.Error("expected a row scoped to otherUserID")
+	}
+	if len(repo.rows) != 2 {
+		t.Errorf("expected 2 distinct rows for the same key across users, got %d", len(repo.rows))
+	}
+}
+
 func TestIdempotencyExpiredKeyTreatedAsNew(t *testing.T) {
 	repo := newFakeRepo()
 	key := uuid.NewString()

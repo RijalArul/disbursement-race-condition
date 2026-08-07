@@ -2,6 +2,7 @@ package disbursement
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	disbconst "github.com/RijalArul/disbursement-race-condition/internal/constants/disbursement"
@@ -21,6 +22,7 @@ func TestCalculateAdminFee(t *testing.T) {
 		{"exactly at threshold takes the higher fee", 5_000_000, disbconst.AdminFeeHigh},
 		{"one above threshold", 5_000_001, disbconst.AdminFeeHigh},
 		{"far above threshold", 950_000_000, disbconst.AdminFeeHigh},
+		{"near int64 max does not overflow", math.MaxInt64 - 1, disbconst.AdminFeeHigh},
 	}
 
 	for _, tt := range tests {

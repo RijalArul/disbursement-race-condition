@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -122,6 +123,43 @@ func TestRequireRole_ReturnsForbiddenNotUnauthorized(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("failed to parse response body: %v", err)
 	}
+}
+
+// TestAuth_AlgNoneRejected forges a classic alg=none token (header.payload.
+// with an empty signature segment) and asserts the middleware rejects it,
+// guarding against the historical golang-jwt "alg=none" bypass.
+func TestAuth_AlgNoneRejected(t *testing.T) {
+	issuer := jwt.NewIssuer("test-secret", 15*time.Minute)
+
+	header := b64urlJSON(t, map[string]string{"alg": "none", "typ": "JWT"})
+	now := time.Now()
+	payload := b64urlJSON(t, map[string]interface{}{
+		"sub":      "user-1",
+		"username": "operator1",
+		"role":     string(domain.RoleOperator),
+		"exp":      now.Add(15 * time.Minute).Unix(),
+		"iat":      now.Unix(),
+		"jti":      "forged-jti",
+	})
+	forgedToken := header + "." + payload + "."
+
+	r := setupRouter(issuer)
+	w := doRequest(r, "Bearer "+forgedToken)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for alg=none forged token, got %d (body: %s)", w.Code, w.Body.String())
+	}
+}
+
+// b64urlJSON marshals v to JSON and base64url-encodes it without padding,
+// matching the JWT segment encoding used by golang-jwt.
+func b64urlJSON(t *testing.T, v interface{}) string {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("failed to marshal JSON: %v", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
 // tamperSignature flips the last character of a JWT's signature segment so
