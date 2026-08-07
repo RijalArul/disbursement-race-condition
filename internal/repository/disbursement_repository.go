@@ -32,10 +32,13 @@ func NewDisbursementRepository(db *gorm.DB) DisbursementRepository {
 }
 
 // Create omits id/created_at/updated_at so Postgres defaults (the DSB-000001
-// sequence, etc.) fill them, read back via GORM's RETURNING.
+// sequence, etc.) fill them. GORM does not scan a DB-assigned default back
+// into a string primary key that it omitted from the INSERT, so the id the
+// sequence generated is read back explicitly via RETURNING "id".
 func (r *disbursementRepository) Create(ctx context.Context, d *models.Disbursement) error {
 	return r.db.WithContext(ctx).
 		Omit("ID", "CreatedAt", "UpdatedAt").
+		Clauses(clause.Returning{Columns: []clause.Column{{Name: "id"}, {Name: "created_at"}, {Name: "updated_at"}}}).
 		Create(d).Error
 }
 

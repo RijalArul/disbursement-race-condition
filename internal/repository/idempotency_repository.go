@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -9,6 +10,11 @@ import (
 	"github.com/RijalArul/disbursement-race-condition/internal/domain"
 	"github.com/RijalArul/disbursement-race-condition/internal/domain/models"
 )
+
+// idempotencyTTL mirrors the DB column default (expires_at TIMESTAMPTZ ...
+// DEFAULT (now() + interval '24 hours')) so a reservation is never left at
+// its Go zero value, which would make every row look expired on arrival.
+const idempotencyTTL = 24 * time.Hour
 
 // IdempotencyRepository is consumed by the idempotency middleware as an interface so unit tests can fake it.
 type IdempotencyRepository interface {
@@ -34,6 +40,7 @@ func (r *idempotencyRepository) TryReserve(ctx context.Context, userID, key, req
 		IdempotencyKey: key,
 		RequestHash:    requestHash,
 		State:          domain.IdemStateProcessing,
+		ExpiresAt:      time.Now().Add(idempotencyTTL),
 	}
 
 	result := r.db.WithContext(ctx).
